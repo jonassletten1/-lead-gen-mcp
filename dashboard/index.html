@@ -49,7 +49,47 @@
   <div id="root"></div>
 
 <script type="text/babel">
-const { useState, useCallback } = React;
+const { useState, useCallback, useEffect, useRef } = React;
+
+/* ─────────────────────────────── API UTILITIES ─────────────────────────────── */
+const API_BASE = "http://localhost:8000";
+
+const apiFetch = async (path, options = {}) => {
+  const token = localStorage.getItem("lf_token");
+  const res = await fetch(`${API_BASE}${path}`, {
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { "Authorization": `Bearer ${token}` } : {}),
+      ...(options.headers || {}),
+    },
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || "Request failed");
+  }
+  return res.status === 204 ? null : res.json();
+};
+
+// Normalize API lead → UI lead shape
+const normLead = (l) => ({
+  id:       l.id,
+  company:  l.company_name,
+  contact:  l.contact_name,
+  email:    l.email,
+  phone:    l.phone,
+  website:  l.website,
+  city:     l.city,
+  industry: l.industry,
+  rep:      l.assigned_to_name || "",
+  status:   l.status,
+  date:     l.created_at ? new Date(l.created_at).toLocaleDateString("en-US", { month:"short", day:"numeric", year:"numeric" }) : "",
+  notes:    l.notes,
+  weaknesses:   l.weaknesses || [],
+  company_size: l.company_size,
+  source_search: l.source_search,
+  assigned_to:  l.assigned_to,
+});
 
 /* ─────────────────────────────── ICONS ─────────────────────────────── */
 const Icon = ({ name, className = "w-5 h-5" }) => {
@@ -83,17 +123,12 @@ const Icon = ({ name, className = "w-5 h-5" }) => {
   );
 };
 
-/* ─────────────────────────────── DUMMY DATA ─────────────────────────────── */
-const REPS = [
-  { id: 1, name: "Sarah Chen",     email: "sarah@leadflow.io",   role: "Senior Rep", avatar: "SC", leads: 156, converted: 22, color: "bg-violet-500" },
-  { id: 2, name: "Marcus Webb",    email: "marcus@leadflow.io",  role: "Sales Rep",  avatar: "MW", leads: 134, converted: 18, color: "bg-blue-500"   },
-  { id: 3, name: "Priya Nair",     email: "priya@leadflow.io",   role: "Senior Rep", avatar: "PN", leads: 201, converted: 31, color: "bg-emerald-500"},
-  { id: 4, name: "James Okafor",   email: "james@leadflow.io",   role: "Sales Rep",  avatar: "JO", leads: 98,  converted: 11, color: "bg-amber-500"  },
-  { id: 5, name: "Lena Vasquez",   email: "lena@leadflow.io",    role: "Junior Rep", avatar: "LV", leads: 72,  converted: 6,  color: "bg-rose-500"   },
-  { id: 6, name: "Derek Huang",    email: "derek@leadflow.io",   role: "Sales Rep",  avatar: "DH", leads: 113, converted: 14, color: "bg-cyan-500"   },
-  { id: 7, name: "Aisha Thompson", email: "aisha@leadflow.io",   role: "Senior Rep", avatar: "AT", leads: 189, converted: 27, color: "bg-purple-500" },
-  { id: 8, name: "Tom Reilly",     email: "tom@leadflow.io",     role: "Junior Rep", avatar: "TR", leads: 84,  converted: 9,  color: "bg-teal-500"   },
-];
+/* ─────────────────────────────── HELPERS ─────────────────────────────── */
+const REP_PALETTE = ["bg-violet-500","bg-blue-500","bg-emerald-500","bg-amber-500","bg-rose-500","bg-cyan-500","bg-purple-500","bg-teal-500"];
+const repColor    = (i) => REP_PALETTE[i % REP_PALETTE.length];
+const repInitials = (name) => (name || "?").split(" ").map(w => w[0]).join("").slice(0,2).toUpperCase();
+
+/* ─────────────────────────────── DUMMY DATA (kept for charts) ─────────────────────────────── */
 
 const STATUSES = ["Not Contacted", "Contacted", "Responded", "Converted", "Not Interested"];
 const STATUS_STYLES = {
@@ -408,66 +443,76 @@ const SectionHeader = ({ title, subtitle, action }) => (
 /* ─── Admin Dashboard ─── */
 const AdminDashboard = () => {
   const [openReps, setOpenReps] = useState({});
+  const [byRep, setByRep] = useState([]);
+  const [loading, setLoading] = useState(true);
   const toggleRep = (name) => setOpenReps(p => ({ ...p, [name]: !p[name] }));
+
+  useEffect(() => {
+    apiFetch("/api/leads/by-rep").then(setByRep).catch(() => {}).finally(() => setLoading(false));
+  }, []);
+
+  const totalLeads    = byRep.reduce((s, r) => s + r.total, 0);
+  const totalConverted = byRep.reduce((s, r) => s + (r["Converted"] || 0), 0);
+  const convRate      = totalLeads ? Math.round((totalConverted / totalLeads) * 100) : 0;
   const donutData = [
-    { label: "Not Contacted", value: 312, color: "#94a3b8" },
-    { label: "Contacted",     value: 489, color: "#3b82f6" },
-    { label: "Responded",     value: 278, color: "#f59e0b" },
-    { label: "Converted",     value: 138, color: "#10b981" },
-    { label: "Not Interested",value: 30,  color: "#f87171" },
-  ];
+    { label: "Not Contacted",  color: "#94a3b8", value: byRep.reduce((s,r) => s+(r["Not Contacted"]||0), 0) },
+    { label: "Contacted",      color: "#3b82f6", value: byRep.reduce((s,r) => s+(r["Contacted"]||0), 0) },
+    { label: "Responded",      color: "#f59e0b", value: byRep.reduce((s,r) => s+(r["Responded"]||0), 0) },
+    { label: "Converted",      color: "#10b981", value: byRep.reduce((s,r) => s+(r["Converted"]||0), 0) },
+    { label: "Not Interested", color: "#f87171", value: byRep.reduce((s,r) => s+(r["Not Interested"]||0), 0) },
+  ].filter(d => d.value > 0);
+
   return (
     <div className="p-6 space-y-6">
       {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard label="Total Leads"     value="1,247" change="+89 this week"  icon="list"     iconBg="bg-blue-50 text-blue-600"     positive />
-        <StatCard label="Active Reps"     value="8"     change="+1 this month"  icon="users"    iconBg="bg-violet-50 text-violet-600"  positive />
-        <StatCard label="Conversion Rate" value="14.2%" change="+2.1% pts"      icon="trending" iconBg="bg-emerald-50 text-emerald-600" positive />
-        <StatCard label="Leads This Week" value="89"    change="+23% vs prior"  icon="search"   iconBg="bg-amber-50 text-amber-600"    positive />
+        <StatCard label="Total Leads"     value={totalLeads}        change="+89 this week"  icon="list"     iconBg="bg-blue-50 text-blue-600"     positive />
+        <StatCard label="Active Reps"     value={byRep.length}      change="+1 this month"  icon="users"    iconBg="bg-violet-50 text-violet-600"  positive />
+        <StatCard label="Conversion Rate" value={`${convRate}%`}    change="+2.1% pts"      icon="trending" iconBg="bg-emerald-50 text-emerald-600" positive />
+        <StatCard label="Leads This Week" value={totalLeads}        change="+23% vs prior"  icon="search"   iconBg="bg-amber-50 text-amber-600"    positive />
       </div>
 
       {/* Charts */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <BarChart bars={CHART_BARS} color="bg-blue-500" title="Leads Added Per Day" subtitle="All reps combined — this week" isRep={false} />
-        <DonutChart data={donutData} title="Lead Status Breakdown" subtitle="Across all 1,247 leads" />
+        {donutData.length > 0
+          ? <DonutChart data={donutData} title="Lead Status Breakdown" subtitle={`Across all ${totalLeads} leads`} />
+          : <DonutChart data={[{label:"No leads",value:1,color:"#e2e8f0"}]} title="Lead Status Breakdown" subtitle="No leads yet" />
+        }
       </div>
 
       {/* Rep Performance */}
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-100">
-        <div className="p-5 border-b border-slate-100">
-          <SectionHeader title="Rep Performance" subtitle="Top reps by leads this month" action="View all reps" />
-        </div>
-        <div className="p-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          {REPS.slice(0, 4).map(rep => {
-            const conv = Math.round((rep.converted / rep.leads) * 100);
-            return (
-              <div key={rep.id} className="border border-slate-100 rounded-xl p-4 hover:border-blue-200 transition-colors">
-                <div className="flex items-center gap-2 mb-3">
-                  <Avatar initials={rep.avatar} color={rep.color} size="w-8 h-8" text="text-xs" />
-                  <div>
-                    <p className="text-xs font-semibold text-slate-800 leading-none">{rep.name}</p>
-                    <p className="text-xs text-slate-400 mt-0.5">{rep.role}</p>
+      {byRep.length > 0 && (
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-100">
+          <div className="p-5 border-b border-slate-100">
+            <SectionHeader title="Rep Performance" subtitle="Top reps by leads this month" action="View all reps" />
+          </div>
+          <div className="p-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            {byRep.slice(0, 4).map((rep, i) => {
+              const conv = rep.total ? Math.round(((rep["Converted"]||0) / rep.total) * 100) : 0;
+              return (
+                <div key={rep.id} className="border border-slate-100 rounded-xl p-4 hover:border-blue-200 transition-colors">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Avatar initials={repInitials(rep.name)} color={repColor(i)} size="w-8 h-8" text="text-xs" />
+                    <div>
+                      <p className="text-xs font-semibold text-slate-800 leading-none">{rep.name}</p>
+                      <p className="text-xs text-slate-400 mt-0.5">Sales Rep</p>
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <div className="flex justify-between text-xs"><span className="text-slate-500">Leads</span><span className="font-semibold text-slate-700">{rep.total}</span></div>
+                    <div className="flex justify-between text-xs"><span className="text-slate-500">Converted</span><span className="font-semibold text-emerald-600">{rep["Converted"]||0}</span></div>
+                    <div className="w-full bg-slate-100 rounded-full h-1.5 mt-2">
+                      <div className="bg-blue-500 h-1.5 rounded-full" style={{width:`${conv}%`}} />
+                    </div>
+                    <p className="text-xs text-slate-400 text-right">{conv}% rate</p>
                   </div>
                 </div>
-                <div className="space-y-1">
-                  <div className="flex justify-between text-xs">
-                    <span className="text-slate-500">Leads</span>
-                    <span className="font-semibold text-slate-700">{rep.leads}</span>
-                  </div>
-                  <div className="flex justify-between text-xs">
-                    <span className="text-slate-500">Converted</span>
-                    <span className="font-semibold text-emerald-600">{rep.converted}</span>
-                  </div>
-                  <div className="w-full bg-slate-100 rounded-full h-1.5 mt-2">
-                    <div className="bg-blue-500 h-1.5 rounded-full" style={{width: `${conv}%`}} />
-                  </div>
-                  <p className="text-xs text-slate-400 text-right">{conv}% rate</p>
-                </div>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Leads by Rep Accordion */}
       <div className="bg-white rounded-2xl shadow-sm border border-slate-100">
@@ -480,151 +525,203 @@ const AdminDashboard = () => {
             <Icon name="download" className="w-3.5 h-3.5" /> Export
           </button>
         </div>
-        <div className="divide-y divide-slate-100">
-          {REPS.map(rep => {
-            const repLeads = LEADS.filter(l => l.rep === rep.name);
-            const conv = Math.round((rep.converted / rep.leads) * 100);
-            const isOpen = !!openReps[rep.name];
-            return (
-              <div key={rep.id}>
-                <button
-                  onClick={() => toggleRep(rep.name)}
-                  className="w-full flex items-center gap-3 px-5 py-3.5 hover:bg-slate-50 transition-colors text-left"
-                >
-                  <Avatar initials={rep.avatar} color={rep.color} size="w-8 h-8" text="text-xs" />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-slate-800 leading-none">{rep.name}</p>
-                    <p className="text-xs text-slate-400 mt-0.5">{rep.role}</p>
-                  </div>
-                  <div className="flex items-center gap-4 flex-shrink-0">
-                    <div className="hidden sm:flex items-center gap-3 text-xs">
-                      <span className="text-slate-500">{rep.leads} leads</span>
-                      <span className="text-emerald-600 font-medium">{rep.converted} converted</span>
-                      <div className="flex items-center gap-1.5">
-                        <div className="w-16 bg-slate-100 rounded-full h-1.5 overflow-hidden">
-                          <div className="bg-blue-500 h-1.5 rounded-full" style={{width: `${conv}%`}} />
-                        </div>
-                        <span className="text-slate-400">{conv}%</span>
-                      </div>
+        {loading ? (
+          <div className="px-5 py-8 text-center text-sm text-slate-400">Loading…</div>
+        ) : (
+          <div className="divide-y divide-slate-100">
+            {byRep.map((rep, i) => {
+              const conv = rep.total ? Math.round(((rep["Converted"]||0) / rep.total) * 100) : 0;
+              const isOpen = !!openReps[rep.name];
+              const repLeads = (rep.leads || []).map(normLead);
+              return (
+                <div key={rep.id}>
+                  <button onClick={() => toggleRep(rep.name)}
+                    className="w-full flex items-center gap-3 px-5 py-3.5 hover:bg-slate-50 transition-colors text-left">
+                    <Avatar initials={repInitials(rep.name)} color={repColor(i)} size="w-8 h-8" text="text-xs" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-slate-800 leading-none">{rep.name}</p>
+                      <p className="text-xs text-slate-400 mt-0.5">{rep.email}</p>
                     </div>
-                    {repLeads.length > 0 && (
-                      <span className="bg-blue-50 text-blue-600 text-xs font-bold px-2 py-0.5 rounded-full">{repLeads.length}</span>
-                    )}
-                    <Icon name="chevronRight" className={`w-4 h-4 text-slate-400 transition-transform duration-200 ${isOpen ? "rotate-90" : ""}`} />
-                  </div>
-                </button>
-                {isOpen && (
-                  <div className="border-t border-slate-100 bg-slate-50/40">
-                    {repLeads.length > 0 ? (
-                      <LeadsTable leads={repLeads} showRep={false} />
-                    ) : (
-                      <p className="text-xs text-slate-400 px-5 py-4">No leads in this sample data.</p>
-                    )}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
+                    <div className="flex items-center gap-4 flex-shrink-0">
+                      <div className="hidden sm:flex items-center gap-3 text-xs">
+                        <span className="text-slate-500">{rep.total} leads</span>
+                        <span className="text-emerald-600 font-medium">{rep["Converted"]||0} converted</span>
+                        <div className="flex items-center gap-1.5">
+                          <div className="w-16 bg-slate-100 rounded-full h-1.5 overflow-hidden">
+                            <div className="bg-blue-500 h-1.5 rounded-full" style={{width:`${conv}%`}} />
+                          </div>
+                          <span className="text-slate-400">{conv}%</span>
+                        </div>
+                      </div>
+                      {rep.total > 0 && <span className="bg-blue-50 text-blue-600 text-xs font-bold px-2 py-0.5 rounded-full">{rep.total}</span>}
+                      <Icon name="chevronRight" className={`w-4 h-4 text-slate-400 transition-transform duration-200 ${isOpen?"rotate-90":""}`} />
+                    </div>
+                  </button>
+                  {isOpen && (
+                    <div className="border-t border-slate-100 bg-slate-50/40">
+                      {repLeads.length > 0
+                        ? <LeadsTable leads={repLeads} showRep={false} />
+                        : <p className="text-xs text-slate-400 px-5 py-4">No leads yet.</p>}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
     </div>
   );
 };
 
 /* ─── Admin Sales Reps ─── */
-const AdminSalesReps = () => (
-  <div className="p-6 space-y-6">
-    <div className="flex items-center justify-between">
-      <div>
-        <h2 className="text-xl font-bold text-slate-800">Sales Reps</h2>
-        <p className="text-sm text-slate-500 mt-1">Manage your team of {REPS.length} sales representatives</p>
-      </div>
-      <button className="flex items-center gap-2 bg-blue-600 text-white text-sm font-semibold px-4 py-2 rounded-xl hover:bg-blue-700 transition-colors shadow-sm shadow-blue-200">
-        <Icon name="plus" className="w-4 h-4" /> Add Rep
-      </button>
-    </div>
+const AdminSalesReps = () => {
+  const [reps, setReps]       = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showAdd, setShowAdd] = useState(false);
+  const [form, setForm]       = useState({ name: "", email: "", password: "" });
+  const [adding, setAdding]   = useState(false);
+  const [addError, setAddError] = useState("");
 
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-      {REPS.map(rep => {
-        const conv = Math.round((rep.converted / rep.leads) * 100);
-        const repLeads = LEADS.filter(l => l.rep === rep.name);
-        const statuses = {};
-        STATUSES.forEach(s => { statuses[s] = repLeads.filter(l => l.status === s).length; });
-        return (
-          <div key={rep.id} className="bg-white rounded-2xl shadow-sm border border-slate-100 p-5 hover:shadow-md hover:border-slate-200 transition-all cursor-pointer">
-            <div className="flex items-start justify-between mb-4">
-              <div className="flex items-center gap-3">
-                <Avatar initials={rep.avatar} color={rep.color} size="w-10 h-10" text="text-sm" />
-                <div>
-                  <p className="font-semibold text-slate-800 text-sm leading-none">{rep.name}</p>
-                  <p className="text-xs text-slate-400 mt-1">{rep.role}</p>
-                </div>
+  useEffect(() => {
+    apiFetch("/api/reps").then(setReps).catch(() => {}).finally(() => setLoading(false));
+  }, []);
+
+  const addRep = async (e) => {
+    e.preventDefault();
+    setAddError(""); setAdding(true);
+    try {
+      const newRep = await apiFetch("/api/reps", { method: "POST", body: JSON.stringify(form) });
+      setReps(prev => [...prev, { ...newRep, total_leads: 0 }]);
+      setShowAdd(false);
+      setForm({ name: "", email: "", password: "" });
+    } catch (err) {
+      setAddError(err.message);
+    } finally {
+      setAdding(false);
+    }
+  };
+
+  return (
+    <div className="p-6 space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-xl font-bold text-slate-800">Sales Reps</h2>
+          <p className="text-sm text-slate-500 mt-1">Manage your team of {reps.length} sales representatives</p>
+        </div>
+        <button onClick={() => setShowAdd(true)}
+          className="flex items-center gap-2 bg-blue-600 text-white text-sm font-semibold px-4 py-2 rounded-xl hover:bg-blue-700 transition-colors shadow-sm shadow-blue-200">
+          <Icon name="plus" className="w-4 h-4" /> Add Rep
+        </button>
+      </div>
+
+      {/* Add Rep modal */}
+      {showAdd && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-sm">
+            <h3 className="font-bold text-slate-800 mb-4">Add Sales Rep</h3>
+            <form onSubmit={addRep} className="space-y-3">
+              <input required value={form.name} onChange={e => setForm(p => ({...p, name: e.target.value}))}
+                placeholder="Full name" className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-blue-400" />
+              <input required type="email" value={form.email} onChange={e => setForm(p => ({...p, email: e.target.value}))}
+                placeholder="Email address" className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-blue-400" />
+              <input required type="password" value={form.password} onChange={e => setForm(p => ({...p, password: e.target.value}))}
+                placeholder="Password" className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-blue-400" />
+              {addError && <p className="text-xs text-red-500">{addError}</p>}
+              <div className="flex gap-2 pt-1">
+                <button type="button" onClick={() => setShowAdd(false)}
+                  className="flex-1 border border-slate-200 text-slate-600 text-sm font-medium py-2 rounded-xl hover:bg-slate-50">Cancel</button>
+                <button type="submit" disabled={adding}
+                  className="flex-1 bg-blue-600 text-white text-sm font-semibold py-2 rounded-xl hover:bg-blue-700 disabled:opacity-60">
+                  {adding ? "Adding…" : "Add Rep"}
+                </button>
               </div>
-              <span className="text-xs bg-emerald-50 text-emerald-600 font-semibold px-2 py-0.5 rounded-full">Active</span>
-            </div>
-            <div className="grid grid-cols-3 gap-2 mb-4">
-              <div className="text-center">
-                <p className="text-lg font-bold text-slate-800">{rep.leads}</p>
-                <p className="text-xs text-slate-400">Leads</p>
-              </div>
-              <div className="text-center border-x border-slate-100">
-                <p className="text-lg font-bold text-emerald-600">{rep.converted}</p>
-                <p className="text-xs text-slate-400">Won</p>
-              </div>
-              <div className="text-center">
-                <p className="text-lg font-bold text-blue-600">{conv}%</p>
-                <p className="text-xs text-slate-400">Rate</p>
-              </div>
-            </div>
-            <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
-              <div className="h-2 rounded-full bg-gradient-to-r from-blue-500 to-emerald-500" style={{width: `${conv}%`}} />
-            </div>
-            <p className="text-xs text-slate-500 mt-2">{rep.email}</p>
+            </form>
           </div>
-        );
-      })}
+        </div>
+      )}
+
+      {loading ? (
+        <div className="text-center text-sm text-slate-400 py-12">Loading…</div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+          {reps.map((rep, i) => {
+            const converted = rep["Converted"] || 0;
+            const conv = rep.total_leads ? Math.round((converted / rep.total_leads) * 100) : 0;
+            return (
+              <div key={rep.id} className="bg-white rounded-2xl shadow-sm border border-slate-100 p-5 hover:shadow-md hover:border-slate-200 transition-all cursor-pointer">
+                <div className="flex items-start justify-between mb-4">
+                  <div className="flex items-center gap-3">
+                    <Avatar initials={repInitials(rep.name)} color={repColor(i)} size="w-10 h-10" text="text-sm" />
+                    <div>
+                      <p className="font-semibold text-slate-800 text-sm leading-none">{rep.name}</p>
+                      <p className="text-xs text-slate-400 mt-1">Sales Rep</p>
+                    </div>
+                  </div>
+                  <span className="text-xs bg-emerald-50 text-emerald-600 font-semibold px-2 py-0.5 rounded-full">Active</span>
+                </div>
+                <div className="grid grid-cols-3 gap-2 mb-4">
+                  <div className="text-center"><p className="text-lg font-bold text-slate-800">{rep.total_leads}</p><p className="text-xs text-slate-400">Leads</p></div>
+                  <div className="text-center border-x border-slate-100"><p className="text-lg font-bold text-emerald-600">{converted}</p><p className="text-xs text-slate-400">Won</p></div>
+                  <div className="text-center"><p className="text-lg font-bold text-blue-600">{conv}%</p><p className="text-xs text-slate-400">Rate</p></div>
+                </div>
+                <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
+                  <div className="h-2 rounded-full bg-gradient-to-r from-blue-500 to-emerald-500" style={{width:`${conv}%`}} />
+                </div>
+                <p className="text-xs text-slate-500 mt-2">{rep.email}</p>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
-  </div>
-);
+  );
+};
 
 /* ─── Admin All Leads ─── */
 const AdminAllLeads = () => {
-  const [filter, setFilter] = useState("All");
+  const [leads, setLeads]     = useState([]);
+  const [filter, setFilter]   = useState("All");
   const [groupByRep, setGroupByRep] = useState(true);
-  const filtered = filter === "All" ? LEADS : LEADS.filter(l => l.status === filter);
-  const repsWithLeads = REPS.filter(rep => filtered.some(l => l.rep === rep.name));
+  const [search, setSearch]   = useState("");
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    apiFetch("/api/leads").then(data => setLeads(data.map(normLead))).catch(() => {}).finally(() => setLoading(false));
+  }, []);
+
+  const filtered = leads.filter(l => {
+    if (filter !== "All" && l.status !== filter) return false;
+    if (search && !l.company.toLowerCase().includes(search.toLowerCase()) &&
+        !l.contact.toLowerCase().includes(search.toLowerCase()) &&
+        !l.email.toLowerCase().includes(search.toLowerCase())) return false;
+    return true;
+  });
+  const repNames = [...new Set(leads.map(l => l.rep))].filter(Boolean);
+
   return (
     <div className="p-6 space-y-5">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-bold text-slate-800">All Leads</h2>
-          <p className="text-sm text-slate-500 mt-1">1,247 total leads across all reps</p>
+          <p className="text-sm text-slate-500 mt-1">{leads.length} total leads across all reps</p>
         </div>
         <button className="flex items-center gap-2 bg-blue-600 text-white text-sm font-semibold px-4 py-2 rounded-xl hover:bg-blue-700 transition-colors shadow-sm shadow-blue-200">
           <Icon name="download" className="w-4 h-4" /> Export CSV
         </button>
       </div>
 
-      {/* Toolbar: status filters + group toggle */}
       <div className="flex flex-wrap items-center gap-2">
         {["All", ...STATUSES].map(s => (
           <button key={s} onClick={() => setFilter(s)}
             className={`text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors ${
-              filter === s
-                ? "bg-blue-600 text-white border-blue-600"
-                : "bg-white text-slate-600 border-slate-200 hover:border-slate-300"
-            }`}>
-            {s}
-          </button>
+              filter === s ? "bg-blue-600 text-white border-blue-600" : "bg-white text-slate-600 border-slate-200 hover:border-slate-300"
+            }`}>{s}</button>
         ))}
-        <button
-          onClick={() => setGroupByRep(g => !g)}
+        <button onClick={() => setGroupByRep(g => !g)}
           className={`ml-auto flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors ${
-            groupByRep
-              ? "bg-slate-800 text-white border-slate-800"
-              : "bg-white text-slate-600 border-slate-200 hover:border-slate-300"
-          }`}
-        >
+            groupByRep ? "bg-slate-800 text-white border-slate-800" : "bg-white text-slate-600 border-slate-200 hover:border-slate-300"
+          }`}>
           <Icon name="users" className="w-3.5 h-3.5" /> Group by Rep
         </button>
       </div>
@@ -633,23 +730,24 @@ const AdminAllLeads = () => {
         <div className="p-4 border-b border-slate-100 flex items-center gap-3">
           <div className="flex-1 flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
             <Icon name="search" className="w-4 h-4 text-slate-400" />
-            <input className="bg-transparent text-sm text-slate-600 placeholder:text-slate-400 outline-none flex-1" placeholder="Search by company, contact, email..." readOnly />
+            <input value={search} onChange={e => setSearch(e.target.value)}
+              className="bg-transparent text-sm text-slate-600 placeholder:text-slate-400 outline-none flex-1"
+              placeholder="Search by company, contact, email..." />
           </div>
-          <button className="flex items-center gap-1.5 text-xs font-medium text-slate-600 border border-slate-200 rounded-lg px-3 py-2 hover:bg-slate-50 bg-white">
-            <Icon name="filter" className="w-3.5 h-3.5" /> Filter
-          </button>
         </div>
 
-        {groupByRep ? (
+        {loading ? (
+          <div className="px-5 py-8 text-center text-sm text-slate-400">Loading…</div>
+        ) : groupByRep ? (
           <div className="divide-y divide-slate-100">
-            {repsWithLeads.map(rep => {
-              const repLeads = filtered.filter(l => l.rep === rep.name);
+            {repNames.map((repName, i) => {
+              const repLeads = filtered.filter(l => l.rep === repName);
+              if (!repLeads.length) return null;
               return (
-                <div key={rep.id}>
+                <div key={repName}>
                   <div className="flex items-center gap-2.5 px-5 py-2.5 bg-slate-50 border-b border-slate-100">
-                    <Avatar initials={rep.avatar} color={rep.color} size="w-6 h-6" text="text-xs" />
-                    <span className="text-xs font-semibold text-slate-700">{rep.name}</span>
-                    <span className="text-xs text-slate-400">{rep.role}</span>
+                    <Avatar initials={repInitials(repName)} color={repColor(i)} size="w-6 h-6" text="text-xs" />
+                    <span className="text-xs font-semibold text-slate-700">{repName}</span>
                     <span className="ml-auto text-xs font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
                       {repLeads.length} lead{repLeads.length !== 1 ? "s" : ""}
                     </span>
@@ -663,13 +761,8 @@ const AdminAllLeads = () => {
           <LeadsTable leads={filtered} showRep={true} />
         )}
 
-        <div className="px-5 py-3 border-t border-slate-100 flex items-center justify-between">
-          <p className="text-xs text-slate-500">Showing {filtered.length} of 1,247 leads</p>
-          <div className="flex items-center gap-1">
-            {[1,2,3].map(p => (
-              <button key={p} className={`text-xs px-2.5 py-1 rounded-md font-medium ${p === 1 ? "bg-blue-600 text-white" : "text-slate-500 hover:bg-slate-100"}`}>{p}</button>
-            ))}
-          </div>
+        <div className="px-5 py-3 border-t border-slate-100">
+          <p className="text-xs text-slate-500">Showing {filtered.length} of {leads.length} leads</p>
         </div>
       </div>
     </div>
@@ -751,29 +844,121 @@ const AdminSettings = () => (
 /* ═══════════════════════════════════════════════════════════════════════════
    REP PAGES
 ═══════════════════════════════════════════════════════════════════════════ */
-const MY_LEADS = LEADS.filter(l => l.rep === "Sarah Chen");
+const MY_LEADS = [
+  {
+    id: 101, company: "Frost HVAC Services", contact: "Mike Frost", email: "mike@frosthvac.com",
+    phone: "713-555-0192", city: "Houston, TX", rep: "Sarah Chen", status: "Contacted", date: "2026-03-14",
+    website: "frosthvac.com", sourceSearch: "HVAC companies in Houston, TX", searchDate: "2026-03-14",
+    industry: "HVAC", companySize: "Small", hasPhone: true, hasEmail: true, hasWebsite: true, hasOwner: true,
+    ownerName: "Mike Frost",
+    weaknesses: ["No online booking", "Slow website", "Missing reviews"],
+    notes: "Owner answered immediately. Interested in lead gen. Call back Thursday.",
+    timeline: [
+      { date: "2026-03-14", status: "Not Contacted", note: "Lead saved from scrape" },
+      { date: "2026-03-14", status: "Contacted", note: "Called at 2pm, spoke to owner" },
+    ],
+  },
+  {
+    id: 102, company: "AirCool Pro", contact: "Linda Park", email: "", phone: "832-555-0347",
+    city: "Houston, TX", rep: "Sarah Chen", status: "Not Contacted", date: "2026-03-14",
+    website: "aircoolpro.com", sourceSearch: "HVAC companies in Houston, TX", searchDate: "2026-03-14",
+    industry: "HVAC", companySize: "Small", hasPhone: true, hasEmail: false, hasWebsite: true, hasOwner: false,
+    ownerName: "",
+    weaknesses: ["No email found", "Outdated website"],
+    notes: "",
+    timeline: [
+      { date: "2026-03-14", status: "Not Contacted", note: "Lead saved from scrape" },
+    ],
+  },
+  {
+    id: 103, company: "Gulf Coast Heating & Air", contact: "James Tran", email: "james@gcheating.com",
+    phone: "713-555-0481", city: "Houston, TX", rep: "Sarah Chen", status: "Responded", date: "2026-03-14",
+    website: "gcheating.com", sourceSearch: "HVAC companies in Houston, TX", searchDate: "2026-03-14",
+    industry: "HVAC", companySize: "Medium", hasPhone: true, hasEmail: true, hasWebsite: true, hasOwner: true,
+    ownerName: "James Tran",
+    weaknesses: ["No SEO presence", "Poor Google Maps listing", "No before/after photos"],
+    notes: "Replied to email within 2hrs. Wants a demo next week.",
+    timeline: [
+      { date: "2026-03-14", status: "Not Contacted", note: "Lead saved from scrape" },
+      { date: "2026-03-15", status: "Contacted", note: "Sent intro email" },
+      { date: "2026-03-15", status: "Responded", note: "Replied asking for demo" },
+    ],
+  },
+  {
+    id: 104, company: "SunPower Solutions", contact: "Rachel Kim", email: "rkim@sunpowersd.com",
+    phone: "", city: "San Diego, CA", rep: "Sarah Chen", status: "Not Contacted", date: "2026-03-15",
+    website: "sunpowersd.com", sourceSearch: "Solar companies in San Diego, CA", searchDate: "2026-03-15",
+    industry: "Solar", companySize: "Large", hasPhone: false, hasEmail: true, hasWebsite: true, hasOwner: true,
+    ownerName: "Rachel Kim",
+    weaknesses: ["No phone number listed", "Weak social proof"],
+    notes: "",
+    timeline: [
+      { date: "2026-03-15", status: "Not Contacted", note: "Lead saved from scrape" },
+    ],
+  },
+  {
+    id: 105, company: "QuickFix Plumbing", contact: "Dave Moreno", email: "dave@quickfixplumbing.com",
+    phone: "713-555-0039", city: "Houston, TX", rep: "Sarah Chen", status: "Converted", date: "2026-03-16",
+    website: "quickfixplumbing.com", sourceSearch: "Plumbing companies in Houston, TX", searchDate: "2026-03-16",
+    industry: "Plumbing", companySize: "Small", hasPhone: true, hasEmail: true, hasWebsite: true, hasOwner: true,
+    ownerName: "Dave Moreno",
+    weaknesses: ["No booking page", "No testimonials"],
+    notes: "Closed on monthly retainer. Very receptive. Great fit.",
+    timeline: [
+      { date: "2026-03-16", status: "Not Contacted", note: "Lead saved from scrape" },
+      { date: "2026-03-16", status: "Contacted", note: "Cold called" },
+      { date: "2026-03-16", status: "Responded", note: "Called back same day" },
+      { date: "2026-03-16", status: "Converted", note: "Signed monthly retainer" },
+    ],
+  },
+  {
+    id: 106, company: "All Seasons Plumbing", contact: "", email: "",
+    phone: "832-555-0762", city: "Houston, TX", rep: "Sarah Chen", status: "Not Interested", date: "2026-03-16",
+    website: "", sourceSearch: "Plumbing companies in Houston, TX", searchDate: "2026-03-16",
+    industry: "Plumbing", companySize: "Small", hasPhone: true, hasEmail: false, hasWebsite: false, hasOwner: false,
+    ownerName: "",
+    weaknesses: ["No website", "No email"],
+    notes: "Owner said not interested in marketing.",
+    timeline: [
+      { date: "2026-03-16", status: "Not Contacted", note: "Lead saved from scrape" },
+      { date: "2026-03-16", status: "Contacted", note: "Called owner" },
+      { date: "2026-03-16", status: "Not Interested", note: "Owner declined" },
+    ],
+  },
+];
 
 /* ─── Rep Dashboard ─── */
-const RepDashboard = () => {
-  const contacted  = MY_LEADS.filter(l => l.status === "Contacted").length;
-  const responded  = MY_LEADS.filter(l => l.status === "Responded").length;
-  const converted  = MY_LEADS.filter(l => l.status === "Converted").length;
-  const respRate   = Math.round((responded + converted) / MY_LEADS.length * 100);
+const RepDashboard = ({ user = {} }) => {
+  const [myLeads, setMyLeads] = useState([]);
+  const [stats, setStats]     = useState({ total: 0 });
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    Promise.all([apiFetch("/api/leads"), apiFetch("/api/leads/stats")])
+      .then(([leads, s]) => { setMyLeads(leads.map(normLead)); setStats(s); })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  const respRate = stats.total
+    ? Math.round(((stats["Responded"]||0) + (stats["Converted"]||0)) / stats.total * 100)
+    : 0;
   const donutData = [
-    { label: "Not Contacted",  value: MY_LEADS.filter(l => l.status === "Not Contacted").length,  color: "#94a3b8" },
-    { label: "Contacted",      value: contacted,  color: "#3b82f6" },
-    { label: "Responded",      value: responded,  color: "#f59e0b" },
-    { label: "Converted",      value: converted,  color: "#10b981" },
-    { label: "Not Interested", value: MY_LEADS.filter(l => l.status === "Not Interested").length, color: "#f87171" },
+    { label: "Not Contacted",  color: "#94a3b8", value: stats["Not Contacted"]  || 0 },
+    { label: "Contacted",      color: "#3b82f6", value: stats["Contacted"]      || 0 },
+    { label: "Responded",      color: "#f59e0b", value: stats["Responded"]      || 0 },
+    { label: "Converted",      color: "#10b981", value: stats["Converted"]      || 0 },
+    { label: "Not Interested", color: "#f87171", value: stats["Not Interested"] || 0 },
   ].filter(d => d.value > 0);
+
   return (
     <div className="p-6 space-y-6">
       {/* Welcome banner */}
       <div className="bg-gradient-to-r from-blue-600 to-blue-700 rounded-2xl p-5 text-white flex items-center justify-between">
         <div>
           <p className="text-blue-100 text-sm font-medium">Good morning,</p>
-          <p className="text-2xl font-bold mt-0.5">Sarah Chen</p>
-          <p className="text-blue-200 text-sm mt-1">You have <span className="text-white font-semibold">12 leads</span> that need follow-up today.</p>
+          <p className="text-2xl font-bold mt-0.5">{user.name || "Sales Rep"}</p>
+          <p className="text-blue-200 text-sm mt-1">You have <span className="text-white font-semibold">{stats.total} leads</span> assigned to you.</p>
         </div>
         <div className="hidden md:block opacity-20">
           <Icon name="trending" className="w-20 h-20 text-white" />
@@ -782,16 +967,19 @@ const RepDashboard = () => {
 
       {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard label="My Leads"     value={MY_LEADS.length} change="+3 this week"  icon="list"     iconBg="bg-blue-50 text-blue-600"     positive />
-        <StatCard label="Contacted"    value={contacted}       change="+2 this week"  icon="mail"     iconBg="bg-violet-50 text-violet-600"  positive />
-        <StatCard label="Converted"    value={converted}       change="+1 this week"  icon="check"    iconBg="bg-emerald-50 text-emerald-600" positive />
-        <StatCard label="Response Rate" value={`${respRate}%`} change="+5% pts"       icon="trending" iconBg="bg-amber-50 text-amber-600"    positive />
+        <StatCard label="My Leads"      value={stats.total}               change="+3 this week"  icon="list"     iconBg="bg-blue-50 text-blue-600"     positive />
+        <StatCard label="Contacted"     value={stats["Contacted"]||0}     change="+2 this week"  icon="mail"     iconBg="bg-violet-50 text-violet-600"  positive />
+        <StatCard label="Converted"     value={stats["Converted"]||0}     change="+1 this week"  icon="check"    iconBg="bg-emerald-50 text-emerald-600" positive />
+        <StatCard label="Response Rate" value={`${respRate}%`}            change="+5% pts"       icon="trending" iconBg="bg-amber-50 text-amber-600"    positive />
       </div>
 
       {/* Charts */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <BarChart bars={CHART_BARS} color="bg-violet-500" title="My Leads Per Day" subtitle="Your activity this week" isRep={true} />
-        <DonutChart data={donutData} title="My Lead Status" subtitle={`Across your ${MY_LEADS.length} leads`} />
+        {donutData.length > 0
+          ? <DonutChart data={donutData} title="My Lead Status" subtitle={`Across your ${stats.total} leads`} />
+          : <DonutChart data={[{label:"No leads",value:1,color:"#e2e8f0"}]} title="My Lead Status" subtitle="No leads yet" />
+        }
       </div>
 
       {/* Recent Leads */}
@@ -805,60 +993,323 @@ const RepDashboard = () => {
             View all <Icon name="chevronRight" className="w-3 h-3" />
           </button>
         </div>
-        <LeadsTable leads={MY_LEADS} showRep={false} />
+        {loading
+          ? <div className="px-5 py-6 text-center text-sm text-slate-400">Loading…</div>
+          : <LeadsTable leads={myLeads.slice(0, 5)} showRep={false} />
+        }
       </div>
     </div>
   );
 };
 
 /* ─── Rep My Leads ─── */
-const RepMyLeads = () => {
-  const [filter, setFilter] = useState("All");
-  const filtered = filter === "All" ? MY_LEADS : MY_LEADS.filter(l => l.status === filter);
+const STATUS_COLORS = {
+  "Not Contacted": "bg-slate-100 text-slate-600",
+  "Contacted":     "bg-blue-100 text-blue-700",
+  "Responded":     "bg-amber-100 text-amber-700",
+  "Converted":     "bg-emerald-100 text-emerald-700",
+  "Not Interested":"bg-red-100 text-red-600",
+};
+const INDUSTRY_COLORS = {
+  "HVAC":     "bg-cyan-100 text-cyan-700",
+  "Solar":    "bg-yellow-100 text-yellow-700",
+  "Plumbing": "bg-indigo-100 text-indigo-700",
+};
+const SIZE_COLORS = {
+  "Small":  "bg-slate-100 text-slate-600",
+  "Medium": "bg-violet-100 text-violet-700",
+  "Large":  "bg-blue-100 text-blue-700",
+};
+
+const ContactIcon = ({ active, title, children }) => (
+  <span title={title} className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-xs ${active ? "bg-emerald-100 text-emerald-600" : "bg-slate-100 text-slate-300"}`}>
+    {children}
+  </span>
+);
+
+const RepMyLeads = ({ user = {} }) => {
+  const [allLeads, setAllLeads]       = useState([]);
+  const [filter, setFilter]           = useState("All");
+  const [groupBySearch, setGroupBySearch] = useState(true);
+  const [expandedIds, setExpandedIds] = useState(new Set());
+  const [search, setSearch]           = useState("");
+  const [loading, setLoading]         = useState(true);
+
+  useEffect(() => {
+    apiFetch("/api/leads")
+      .then(data => setAllLeads(data.map(l => ({
+        ...l,
+        company:      l.company_name,
+        ownerName:    l.contact_name,
+        companySize:  l.company_size,
+        sourceSearch: l.source_search,
+        searchDate:   l.created_at ? new Date(l.created_at).toLocaleDateString() : "",
+        hasPhone:     !!l.phone,
+        hasEmail:     !!l.email,
+        hasWebsite:   !!l.website,
+        hasOwner:     !!l.contact_name,
+        timeline:     [{ date: new Date(l.updated_at || l.created_at || Date.now()).toLocaleDateString(), status: l.status, note: "Current status" }],
+      }))))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  const updateStatus = async (leadId, newStatus) => {
+    try {
+      await apiFetch(`/api/leads/${leadId}`, { method: "PUT", body: JSON.stringify({ status: newStatus }) });
+      setAllLeads(prev => prev.map(l => l.id === leadId ? { ...l, status: newStatus } : l));
+    } catch (err) {
+      alert("Failed to update status: " + err.message);
+    }
+  };
+
+  const toggleRow = (id) => setExpandedIds(prev => {
+    const next = new Set(prev);
+    next.has(id) ? next.delete(id) : next.add(id);
+    return next;
+  });
+
+  const filtered = allLeads.filter(l => {
+    if (filter !== "All" && l.status !== filter) return false;
+    if (search && !l.company.toLowerCase().includes(search.toLowerCase()) &&
+        !(l.industry||"").toLowerCase().includes(search.toLowerCase()) &&
+        !(l.city||"").toLowerCase().includes(search.toLowerCase())) return false;
+    return true;
+  });
+
+  const searches = [...new Set(allLeads.map(l => l.sourceSearch))].filter(Boolean);
+  const groups = groupBySearch
+    ? searches.map(s => ({ key: s, leads: filtered.filter(l => l.sourceSearch === s) })).filter(g => g.leads.length > 0)
+    : [{ key: "all", leads: filtered }];
+
+  const LeadRow = ({ lead }) => {
+    const isOpen = expandedIds.has(lead.id);
+    return (
+      <>
+        <tr
+          onClick={() => toggleRow(lead.id)}
+          className="border-b border-slate-100 hover:bg-slate-50 cursor-pointer transition-colors"
+        >
+          {/* Company */}
+          <td className="px-4 py-3">
+            <div className="font-medium text-slate-800 text-sm">{lead.company}</div>
+            {lead.ownerName && <div className="text-xs text-slate-400 mt-0.5">{lead.ownerName}</div>}
+          </td>
+          {/* Industry */}
+          <td className="px-4 py-3">
+            <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${INDUSTRY_COLORS[lead.industry] || "bg-slate-100 text-slate-600"}`}>
+              {lead.industry}
+            </span>
+          </td>
+          {/* Weaknesses */}
+          <td className="px-4 py-3">
+            <div className="flex flex-wrap gap-1">
+              {lead.weaknesses.slice(0, 2).map((w, i) => (
+                <span key={i} className="text-xs bg-orange-50 text-orange-700 border border-orange-200 px-1.5 py-0.5 rounded-md">{w}</span>
+              ))}
+              {lead.weaknesses.length > 2 && (
+                <span className="text-xs bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded-md">+{lead.weaknesses.length - 2}</span>
+              )}
+            </div>
+          </td>
+          {/* City */}
+          <td className="px-4 py-3 text-sm text-slate-600 whitespace-nowrap">{lead.city}</td>
+          {/* Size */}
+          <td className="px-4 py-3">
+            <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${SIZE_COLORS[lead.companySize] || "bg-slate-100 text-slate-600"}`}>
+              {lead.companySize}
+            </span>
+          </td>
+          {/* Contact icons */}
+          <td className="px-4 py-3">
+            <div className="flex items-center gap-1">
+              <ContactIcon active={lead.hasPhone} title={lead.hasPhone ? `Phone: ${lead.phone}` : "No phone"}>📞</ContactIcon>
+              <ContactIcon active={lead.hasEmail} title={lead.hasEmail ? `Email: ${lead.email}` : "No email"}>✉️</ContactIcon>
+              <ContactIcon active={lead.hasWebsite} title={lead.hasWebsite ? `Website: ${lead.website}` : "No website"}>🌐</ContactIcon>
+              <ContactIcon active={lead.hasOwner} title={lead.hasOwner ? `Owner: ${lead.ownerName}` : "Owner unknown"}>👤</ContactIcon>
+            </div>
+          </td>
+          {/* Status */}
+          <td className="px-4 py-3">
+            <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${STATUS_COLORS[lead.status] || "bg-slate-100 text-slate-600"}`}>
+              {lead.status}
+            </span>
+          </td>
+          {/* Expand chevron */}
+          <td className="px-3 py-3 text-slate-300">
+            <Icon name="chevronRight" className={`w-4 h-4 transition-transform ${isOpen ? "rotate-90" : ""}`} />
+          </td>
+        </tr>
+        {isOpen && (
+          <tr className="bg-slate-50/70 border-b border-slate-100">
+            <td colSpan={8} className="px-6 py-5">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+                {/* Contact info */}
+                <div>
+                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Contact Info</p>
+                  <div className="space-y-1.5 text-sm">
+                    {lead.phone ? <div className="flex items-center gap-2 text-slate-700"><span className="text-base">📞</span>{lead.phone}</div>
+                      : <div className="text-slate-400 italic text-xs">No phone found</div>}
+                    {lead.email ? <div className="flex items-center gap-2 text-slate-700"><span className="text-base">✉️</span>{lead.email}</div>
+                      : <div className="text-slate-400 italic text-xs">No email found</div>}
+                    {lead.website ? <div className="flex items-center gap-2 text-blue-600"><span className="text-base">🌐</span><a href={`https://${lead.website}`} className="hover:underline">{lead.website}</a></div>
+                      : <div className="text-slate-400 italic text-xs">No website found</div>}
+                    {lead.ownerName && <div className="flex items-center gap-2 text-slate-700"><span className="text-base">👤</span>{lead.ownerName}</div>}
+                  </div>
+                </div>
+                {/* Weaknesses + notes */}
+                <div>
+                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Weaknesses Found</p>
+                  <div className="flex flex-wrap gap-1.5 mb-3">
+                    {lead.weaknesses.map((w, i) => (
+                      <span key={i} className="text-xs bg-orange-50 text-orange-700 border border-orange-200 px-2 py-0.5 rounded-md">{w}</span>
+                    ))}
+                  </div>
+                  {lead.notes && (
+                    <>
+                      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Notes</p>
+                      <p className="text-sm text-slate-600 bg-white border border-slate-200 rounded-lg px-3 py-2">{lead.notes}</p>
+                    </>
+                  )}
+                </div>
+                {/* Timeline */}
+                <div>
+                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Status Timeline</p>
+                  <div className="relative space-y-0">
+                    {lead.timeline.map((t, i) => (
+                      <div key={i} className="flex gap-3 pb-3 last:pb-0 relative">
+                        <div className="flex flex-col items-center">
+                          <div className={`w-2.5 h-2.5 rounded-full mt-1 shrink-0 ${
+                            t.status === "Converted" ? "bg-emerald-500" :
+                            t.status === "Responded" ? "bg-amber-500" :
+                            t.status === "Contacted" ? "bg-blue-500" :
+                            t.status === "Not Interested" ? "bg-red-400" : "bg-slate-300"
+                          }`} />
+                          {i < lead.timeline.length - 1 && <div className="w-px flex-1 bg-slate-200 mt-1" />}
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-medium text-slate-700">{t.status}</span>
+                            <span className="text-xs text-slate-400">{t.date}</span>
+                          </div>
+                          <p className="text-xs text-slate-500 mt-0.5">{t.note}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              {/* Website screenshot placeholder */}
+              {lead.hasWebsite && (
+                <div className="mt-4 border border-slate-200 rounded-xl overflow-hidden bg-white">
+                  <div className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 border-b border-slate-200">
+                    <div className="w-2.5 h-2.5 rounded-full bg-red-400" />
+                    <div className="w-2.5 h-2.5 rounded-full bg-yellow-400" />
+                    <div className="w-2.5 h-2.5 rounded-full bg-green-400" />
+                    <span className="text-xs text-slate-500 ml-2">{lead.website}</span>
+                  </div>
+                  <div className="h-24 flex items-center justify-center text-slate-400 text-sm gap-2">
+                    <Icon name="eye" className="w-4 h-4" />
+                    Website screenshot preview
+                  </div>
+                </div>
+              )}
+            </td>
+          </tr>
+        )}
+      </>
+    );
+  };
+
   return (
     <div className="p-6 space-y-5">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-bold text-slate-800">My Leads</h2>
-          <p className="text-sm text-slate-500 mt-1">{MY_LEADS.length} leads assigned to you</p>
+          <p className="text-sm text-slate-500 mt-1">{allLeads.length} leads assigned to you</p>
         </div>
+        {/* Group by Search toggle */}
+        <button
+          onClick={() => setGroupBySearch(g => !g)}
+          className={`flex items-center gap-2 text-sm font-medium px-3 py-1.5 rounded-lg border transition-colors ${
+            groupBySearch ? "bg-blue-600 text-white border-blue-600" : "bg-white text-slate-600 border-slate-200 hover:border-slate-300"
+          }`}
+        >
+          <Icon name="list" className="w-4 h-4" />
+          Group by Search
+        </button>
       </div>
 
-      {/* Filter */}
+      {/* Status filter pills */}
       <div className="flex flex-wrap gap-2">
         {["All", ...STATUSES].map(s => (
           <button key={s} onClick={() => setFilter(s)}
             className={`text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors ${
-              filter === s
-                ? "bg-blue-600 text-white border-blue-600"
-                : "bg-white text-slate-600 border-slate-200 hover:border-slate-300"
+              filter === s ? "bg-blue-600 text-white border-blue-600" : "bg-white text-slate-600 border-slate-200 hover:border-slate-300"
             }`}>
             {s}
             <span className={`ml-1.5 px-1.5 py-0.5 rounded-full text-xs font-bold ${filter === s ? "bg-blue-500 text-white" : "bg-slate-100 text-slate-500"}`}>
-              {s === "All" ? MY_LEADS.length : MY_LEADS.filter(l => l.status === s).length}
+              {s === "All" ? allLeads.length : allLeads.filter(l => l.status === s).length}
             </span>
           </button>
         ))}
       </div>
 
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-100">
-        <div className="p-4 border-b border-slate-100 flex items-center gap-3">
-          <div className="flex-1 flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
-            <Icon name="search" className="w-4 h-4 text-slate-400" />
-            <input className="bg-transparent text-sm text-slate-600 placeholder:text-slate-400 outline-none flex-1" placeholder="Search my leads..." readOnly />
+      {/* Search bar */}
+      <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-3 py-2 shadow-sm">
+        <Icon name="search" className="w-4 h-4 text-slate-400 shrink-0" />
+        <input
+          value={search} onChange={e => setSearch(e.target.value)}
+          className="bg-transparent text-sm text-slate-600 placeholder:text-slate-400 outline-none flex-1"
+          placeholder="Search by company, industry, or city…"
+        />
+        {search && (
+          <button onClick={() => setSearch("")} className="text-slate-400 hover:text-slate-600 text-xs">✕</button>
+        )}
+      </div>
+
+      {/* Leads table */}
+      {groups.map(group => (
+        <div key={group.key} className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+          {groupBySearch && (
+            <div className="px-5 py-3 border-b border-slate-100 bg-slate-50/60 flex items-center justify-between">
+              <div>
+                <p className="text-sm font-semibold text-slate-700">{group.key}</p>
+                <p className="text-xs text-slate-400 mt-0.5">{group.leads[0]?.searchDate} · {group.leads.length} lead{group.leads.length !== 1 ? "s" : ""}</p>
+              </div>
+            </div>
+          )}
+          <table className="w-full text-left min-w-[700px]">
+            <thead>
+              <tr className="border-b border-slate-100">
+                <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Company</th>
+                <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Industry</th>
+                <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Weaknesses</th>
+                <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">City</th>
+                <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Size</th>
+                <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Contact</th>
+                <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Status</th>
+                <th className="px-4 py-3" />
+              </tr>
+            </thead>
+            <tbody>
+              {group.leads.length === 0
+                ? <tr><td colSpan={8} className="px-4 py-8 text-center text-sm text-slate-400">No leads match your filters.</td></tr>
+                : group.leads.map(lead => <LeadRow key={lead.id} lead={lead} />)
+              }
+            </tbody>
+          </table>
+          <div className="px-5 py-3 border-t border-slate-100">
+            <p className="text-xs text-slate-400">Showing {group.leads.length} lead{group.leads.length !== 1 ? "s" : ""}</p>
           </div>
         </div>
-        <LeadsTable leads={filtered} showRep={false} />
-        <div className="px-5 py-3 border-t border-slate-100">
-          <p className="text-xs text-slate-500">Showing {filtered.length} leads</p>
-        </div>
-      </div>
+      ))}
     </div>
   );
 };
 
 /* ─── Rep Search Leads ─── */
-const RepSearchLeads = () => {
+const RepSearchLeads = ({ user = {} }) => {
   const [phase, setPhase] = useState("form");
   const [progress, setProgress] = useState(0);
   const [progressStep, setProgressStep] = useState(0);
@@ -915,45 +1366,79 @@ const RepSearchLeads = () => {
     "Done!",
   ];
 
-  const MOCK_RESULTS = [
-    { company: "Summit Roofing Co",          contact: "Dave Morales",   email: "dave@summitroof.com",       phone: "(713) 555-2281", website: "summitroof.com",       issues: ["Bad website","No Google Ads"],       rating: 3.2, reviews: 14 },
-    { company: "Apex Home Solutions",         contact: "—",              email: "info@apexhome.net",         phone: "(832) 555-4490", website: "apexhome.net",          issues: ["Low reviews","Poor SEO"],           rating: 2.8, reviews: 6  },
-    { company: "Reliable Pro Services",       contact: "Kim Foster",     email: "kim@reliablepro.io",        phone: "(281) 555-7823", website: "—",                    issues: ["No website","No social media"],     rating: null,reviews: 0  },
-    { company: "Greenfield & Sons",           contact: "Tom Greenfield", email: "tom@greenfieldco.com",      phone: "(713) 555-3312", website: "greenfieldco.com",      issues: ["Outdated site","No booking"],       rating: 4.1, reviews: 8  },
-    { company: "Pro Touch Contractors",       contact: "—",              email: "contact@protouchco.com",    phone: "(832) 555-9911", website: "protouchco.com",        issues: ["No Google Ads","Poor SEO"],         rating: 3.9, reviews: 22 },
-    { company: "Sunrise Home Repair",         contact: "Alice Wu",       email: "alice@sunrisehome.com",     phone: "(512) 555-6614", website: "sunrisehome.com",       issues: ["Low reviews","No social media"],    rating: 2.5, reviews: 4  },
-    { company: "Eagle Eye Construction",      contact: "Brad Lee",       email: "—",                         phone: "(713) 555-0834", website: "—",                    issues: ["No website","No booking"],          rating: null,reviews: 0  },
-    { company: "TrueNorth Services",          contact: "Pam Rivera",     email: "pam@truenorthsvc.com",      phone: "(281) 555-2217", website: "truenorthsvc.com",      issues: ["Bad website","No Google Ads"],      rating: 3.6, reviews: 11 },
-    { company: "First Choice Pros",           contact: "Gary Nash",      email: "gary@firstchoicepros.com",  phone: "(832) 555-5509", website: "firstchoicepros.com",   issues: ["Outdated contact","Poor SEO"],      rating: 4.0, reviews: 17 },
-    { company: "HomeFix Experts",             contact: "—",              email: "info@homefixexperts.com",   phone: "(713) 555-7743", website: "homefixexperts.com",    issues: ["No social media","Low reviews"],    rating: 2.2, reviews: 3  },
-  ];
+  const [results, setResults] = useState([]);
 
   const canSearch = industryInput.trim() && location.trim();
 
-  const startScraping = () => {
+  const startScraping = async () => {
     setPhase("scraping");
     setProgress(0);
     setProgressStep(0);
     setSavedLeads(new Set());
     setSelectedLeads(new Set());
+
+    // Animate progress bar while API call runs in background
     let p = 0;
     const iv = setInterval(() => {
-      p += Math.random() * 7 + 3;
-      if (p >= 100) {
-        clearInterval(iv);
-        setProgress(100);
-        setProgressStep(PROGRESS_STEPS.length - 1);
-        setTimeout(() => setPhase("results"), 600);
-      } else {
-        setProgress(Math.round(p));
-        setProgressStep(Math.min(Math.floor(p / 20), PROGRESS_STEPS.length - 2));
-      }
-    }, 160);
+      p = Math.min(p + Math.random() * 5 + 2, 90);
+      setProgress(Math.round(p));
+      setProgressStep(Math.min(Math.floor(p / 20), PROGRESS_STEPS.length - 2));
+    }, 200);
+
+    try {
+      const data = await apiFetch("/api/scrape", {
+        method: "POST",
+        body: JSON.stringify({
+          industry:    industryInput.trim(),
+          location:    location.trim(),
+          radius,
+          criteria,
+          phone_req:   phoneReq,
+          email_req:   emailReq,
+          quantity,
+          company_size: companySize,
+        }),
+      });
+      clearInterval(iv);
+      // Assign stable IDs for selection tracking
+      const mapped = (data.results || []).map((r, i) => ({ ...r, id: i + 1 }));
+      setResults(mapped);
+      setProgress(100);
+      setProgressStep(PROGRESS_STEPS.length - 1);
+      setTimeout(() => setPhase("results"), 600);
+    } catch (err) {
+      clearInterval(iv);
+      alert("Scrape failed: " + err.message);
+      setPhase("form");
+    }
   };
 
   const toggleSelect = (id) => setSelectedLeads(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
-  const toggleAll    = () => setSelectedLeads(s => s.size === MOCK_RESULTS.length ? new Set() : new Set(MOCK_RESULTS.map(r => r.id)));
-  const saveSelected = () => { setSavedLeads(s => new Set([...s, ...selectedLeads])); setSelectedLeads(new Set()); };
+  const toggleAll    = () => setSelectedLeads(s => s.size === results.length ? new Set() : new Set(results.map(r => r.id)));
+  const saveSelected = async () => {
+    const toSave = results.filter(r => selectedLeads.has(r.id));
+    try {
+      await Promise.all(toSave.map(r =>
+        apiFetch("/api/leads", {
+          method: "POST",
+          body: JSON.stringify({
+            company_name:  r.company_name,
+            email:         r.email || "",
+            phone:         r.phone || "",
+            website:       r.website || "",
+            city:          r.city   || location.trim(),
+            industry:      r.industry || industryInput.trim(),
+            source_search: r.source_search || `${industryInput} in ${location}`,
+            status:        "Not Contacted",
+          }),
+        })
+      ));
+      setSavedLeads(s => new Set([...s, ...selectedLeads]));
+      setSelectedLeads(new Set());
+    } catch (err) {
+      alert("Failed to save leads: " + err.message);
+    }
+  };
 
   /* ── FORM ─────────────────────────────────────────────────────── */
   if (phase === "form") return (
@@ -1219,15 +1704,15 @@ const RepSearchLeads = () => {
   );
 
   /* ── RESULTS ──────────────────────────────────────────────────── */
-  const allSel = selectedLeads.size === MOCK_RESULTS.length;
+  const allSel = results.length > 0 && selectedLeads.size === results.length;
   return (
     <div className="p-6 space-y-5 max-w-5xl">
       <div className="flex items-center justify-between gap-4">
         <div>
-          <h2 className="text-xl font-bold text-slate-800">{MOCK_RESULTS.length} leads found</h2>
+          <h2 className="text-xl font-bold text-slate-800">{results.length} leads found</h2>
           <p className="text-sm text-slate-500 mt-0.5">{industryInput} · {location} · {radius}</p>
         </div>
-        <button onClick={() => { setPhase("form"); setSelectedLeads(new Set()); setSavedLeads(new Set()); }}
+        <button onClick={() => { setPhase("form"); setSelectedLeads(new Set()); setSavedLeads(new Set()); setResults([]); }}
           className="text-xs font-semibold text-slate-600 border border-slate-200 rounded-xl px-4 py-2 hover:bg-slate-50 bg-white transition-colors flex-shrink-0">
           ← New Search
         </button>
@@ -1235,9 +1720,9 @@ const RepSearchLeads = () => {
 
       {/* Summary pills */}
       <div className="flex flex-wrap gap-2">
-        <span className="text-xs font-semibold bg-blue-50 text-blue-700 px-3 py-1.5 rounded-lg">{MOCK_RESULTS.filter(r=>r.email!=="—").length} with email</span>
-        <span className="text-xs font-semibold bg-emerald-50 text-emerald-700 px-3 py-1.5 rounded-lg">{MOCK_RESULTS.filter(r=>r.phone).length} with phone</span>
-        <span className="text-xs font-semibold bg-amber-50 text-amber-700 px-3 py-1.5 rounded-lg">{MOCK_RESULTS.filter(r=>r.website==="—").length} no website</span>
+        <span className="text-xs font-semibold bg-blue-50 text-blue-700 px-3 py-1.5 rounded-lg">{results.filter(r=>r.has_email).length} with email</span>
+        <span className="text-xs font-semibold bg-emerald-50 text-emerald-700 px-3 py-1.5 rounded-lg">{results.filter(r=>r.has_phone).length} with phone</span>
+        <span className="text-xs font-semibold bg-amber-50 text-amber-700 px-3 py-1.5 rounded-lg">{results.filter(r=>!r.has_website).length} no website</span>
         {savedLeads.size > 0 && <span className="text-xs font-semibold bg-slate-800 text-white px-3 py-1.5 rounded-lg">{savedLeads.size} saved</span>}
       </div>
 
@@ -1249,11 +1734,11 @@ const RepSearchLeads = () => {
             {allSel && <Icon name="check" className="w-2.5 h-2.5 text-white" />}
           </div>
           <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider flex-1">Company</span>
-          <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider w-40 hidden md:block">Contact</span>
-          <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider w-44 hidden lg:block">Issues Found</span>
+          <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider w-44 hidden md:block">Contact Info</span>
+          <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider w-32 hidden lg:block">Source</span>
         </div>
         <div className="divide-y divide-slate-50">
-          {MOCK_RESULTS.map(r => {
+          {results.map(r => {
             const isSaved = savedLeads.has(r.id);
             const isSel   = selectedLeads.has(r.id);
             return (
@@ -1268,30 +1753,27 @@ const RepSearchLeads = () => {
                       <Icon name="building" className="w-3.5 h-3.5 text-slate-500" />
                     </div>
                     <div>
-                      <p className="text-sm font-semibold text-slate-800">{r.company}</p>
-                      <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-0.5">
-                        {r.email !== "—" && <span className="text-xs text-slate-500 flex items-center gap-1"><Icon name="mail" className="w-3 h-3 text-slate-400"/>{r.email}</span>}
-                        <span className="text-xs text-slate-500 flex items-center gap-1"><Icon name="phone" className="w-3 h-3 text-slate-400"/>{r.phone}</span>
-                        {r.website !== "—" && <span className="text-xs text-slate-400">{r.website}</span>}
-                      </div>
+                      <p className="text-sm font-semibold text-slate-800">{r.company_name}</p>
+                      <p className="text-xs text-slate-400 mt-0.5">{r.city}</p>
                     </div>
                   </div>
-                  <div className="flex flex-wrap gap-1 mt-2 lg:hidden">
-                    {r.issues.map(iss => <span key={iss} className="text-xs bg-amber-50 text-amber-700 border border-amber-100 px-1.5 py-0.5 rounded font-medium">{iss}</span>)}
-                  </div>
                 </div>
-                <div className="w-40 hidden md:block flex-shrink-0">
-                  <p className="text-xs font-medium text-slate-700">{r.contact !== "—" ? r.contact : <span className="text-slate-300 font-normal">Unknown</span>}</p>
-                  {r.rating !== null
-                    ? <p className="text-xs text-amber-500 mt-0.5">★ {r.rating} <span className="text-slate-400">({r.reviews} reviews)</span></p>
-                    : <p className="text-xs text-slate-300 mt-0.5">No Google listing</p>}
+                <div className="w-44 hidden md:flex flex-col gap-0.5 flex-shrink-0">
+                  {r.email ? <span className="text-xs text-slate-600 flex items-center gap-1"><Icon name="mail" className="w-3 h-3 text-slate-400 flex-shrink-0"/>{r.email}</span>
+                    : <span className="text-xs text-slate-300">No email</span>}
+                  {r.phone ? <span className="text-xs text-slate-600 flex items-center gap-1"><Icon name="phone" className="w-3 h-3 text-slate-400 flex-shrink-0"/>{r.phone}</span>
+                    : <span className="text-xs text-slate-300">No phone</span>}
+                  {r.website && <span className="text-xs text-blue-500 truncate">{r.website.replace(/^https?:\/\//,"").slice(0,30)}</span>}
                 </div>
-                <div className="w-44 hidden lg:flex flex-col gap-1 flex-shrink-0">
-                  {r.issues.map(iss => <span key={iss} className="text-xs bg-amber-50 text-amber-700 border border-amber-100 px-1.5 py-0.5 rounded font-medium">{iss}</span>)}
+                <div className="w-32 hidden lg:block flex-shrink-0">
+                  <span className="text-xs bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded">{r.industry}</span>
                 </div>
               </div>
             );
           })}
+          {results.length === 0 && (
+            <div className="px-5 py-8 text-center text-sm text-slate-400">No results found. Try a different search.</div>
+          )}
         </div>
       </div>
 
@@ -1314,13 +1796,13 @@ const RepSearchLeads = () => {
             <Icon name="check" className="w-4 h-4" />
             Save Selected
           </button>
-          {savedLeads.size > 0 && selectedLeads.size === 0 && savedLeads.size < MOCK_RESULTS.length && (
-            <button onClick={() => setSavedLeads(new Set(MOCK_RESULTS.map(r => r.id)))}
+          {savedLeads.size > 0 && selectedLeads.size === 0 && savedLeads.size < results.length && (
+            <button onClick={async () => { setSelectedLeads(new Set(results.map(r => r.id))); }}
               className="text-xs font-medium text-slate-500 hover:text-slate-700 px-3 py-2 rounded-lg hover:bg-slate-100 transition-colors">
               Save all
             </button>
           )}
-          {savedLeads.size === MOCK_RESULTS.length && (
+          {results.length > 0 && savedLeads.size === results.length && (
             <span className="text-xs font-semibold text-emerald-600 flex items-center gap-1.5"><Icon name="check" className="w-3 h-3"/>All saved!</span>
           )}
         </div>
@@ -1332,79 +1814,117 @@ const RepSearchLeads = () => {
 /* ═══════════════════════════════════════════════════════════════════════════
    LOGIN PAGE
 ═══════════════════════════════════════════════════════════════════════════ */
-const Login = ({ onLogin }) => (
-  <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
-    {/* Background decoration */}
-    <div className="absolute inset-0 overflow-hidden pointer-events-none">
-      <div className="absolute -top-40 -right-40 w-96 h-96 bg-blue-600 opacity-10 rounded-full blur-3xl" />
-      <div className="absolute -bottom-40 -left-40 w-96 h-96 bg-violet-600 opacity-10 rounded-full blur-3xl" />
-    </div>
+const Login = ({ onLogin }) => {
+  const [email, setEmail]       = useState("admin@leadflow.io");
+  const [password, setPassword] = useState("admin123");
+  const [loading, setLoading]   = useState(false);
+  const [error, setError]       = useState("");
+  const [serverOk, setServerOk] = useState(null); // null=checking, true=up, false=down
 
-    <div className="w-full max-w-sm relative">
-      {/* Logo */}
-      <div className="text-center mb-8">
-        <div className="w-12 h-12 bg-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-blue-900/50">
-          <Icon name="trending" className="w-6 h-6 text-white" />
-        </div>
-        <h1 className="text-2xl font-bold text-white">LeadFlow</h1>
-        <p className="text-slate-400 text-sm mt-1">Sales Intelligence Platform</p>
+  useEffect(() => {
+    fetch(`${API_BASE}/api/auth/login`, { method: "OPTIONS" })
+      .then(() => setServerOk(true))
+      .catch(() => setServerOk(false));
+  }, []);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setError("");
+    setLoading(true);
+    try {
+      const data = await apiFetch("/api/auth/login", {
+        method: "POST",
+        body: JSON.stringify({ email, password }),
+      });
+      localStorage.setItem("lf_token", data.token);
+      localStorage.setItem("lf_user", JSON.stringify(data.user));
+      onLogin(data.user);
+    } catch (err) {
+      const msg = err.message || "Login failed";
+      setError(msg === "Failed to fetch"
+        ? "Cannot reach the server. Run: python3 app.py"
+        : msg);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute -top-40 -right-40 w-96 h-96 bg-blue-600 opacity-10 rounded-full blur-3xl" />
+        <div className="absolute -bottom-40 -left-40 w-96 h-96 bg-violet-600 opacity-10 rounded-full blur-3xl" />
       </div>
 
-      {/* Card */}
-      <div className="bg-slate-800 border border-slate-700 rounded-2xl p-7 shadow-2xl">
-        <h2 className="text-lg font-bold text-white mb-1">Welcome back</h2>
-        <p className="text-slate-400 text-sm mb-6">Sign in to your account to continue</p>
+      <div className="w-full max-w-sm relative">
+        <div className="text-center mb-8">
+          <div className="w-12 h-12 bg-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-blue-900/50">
+            <Icon name="trending" className="w-6 h-6 text-white" />
+          </div>
+          <h1 className="text-2xl font-bold text-white">LeadFlow</h1>
+          <p className="text-slate-400 text-sm mt-1">Sales Intelligence Platform</p>
+        </div>
 
-        <div className="space-y-4">
-          <div>
-            <label className="block text-xs font-semibold text-slate-400 mb-1.5 uppercase tracking-wider">Email</label>
-            <input
-              type="email"
-              defaultValue="admin@leadflow.io"
-              className="w-full bg-slate-900 border border-slate-700 text-white placeholder:text-slate-600 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-blue-500 transition-colors"
-              placeholder="you@company.com"
-            />
+        <div className="bg-slate-800 border border-slate-700 rounded-2xl p-7 shadow-2xl">
+          <div className="flex items-center gap-2 mb-4">
+            <div className={`w-2 h-2 rounded-full flex-shrink-0 ${serverOk === null ? "bg-slate-500 animate-pulse" : serverOk ? "bg-emerald-400" : "bg-red-500"}`} />
+            <span className="text-xs text-slate-400">
+              {serverOk === null ? "Checking server…" : serverOk ? "Server online" : "Server offline — run: python3 app.py"}
+            </span>
           </div>
-          <div>
-            <label className="block text-xs font-semibold text-slate-400 mb-1.5 uppercase tracking-wider">Password</label>
-            <input
-              type="password"
-              defaultValue="password"
-              className="w-full bg-slate-900 border border-slate-700 text-white placeholder:text-slate-600 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-blue-500 transition-colors"
-              placeholder="••••••••"
-            />
-          </div>
-          <div className="flex items-center justify-between">
-            <label className="flex items-center gap-2 cursor-pointer">
-              <div className="w-4 h-4 bg-blue-600 rounded flex items-center justify-center">
-                <Icon name="check" className="w-3 h-3 text-white" />
-              </div>
-              <span className="text-xs text-slate-400">Remember me</span>
-            </label>
-            <button className="text-xs text-blue-400 hover:text-blue-300 font-medium">Forgot password?</button>
+          <h2 className="text-lg font-bold text-white mb-1">Welcome back</h2>
+          <p className="text-slate-400 text-sm mb-6">Sign in to your account to continue</p>
+
+          <form onSubmit={submit} className="space-y-4">
+            <div>
+              <label className="block text-xs font-semibold text-slate-400 mb-1.5 uppercase tracking-wider">Email</label>
+              <input
+                type="email" value={email} onChange={e => setEmail(e.target.value)} required
+                className="w-full bg-slate-900 border border-slate-700 text-white placeholder:text-slate-600 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-blue-500 transition-colors"
+                placeholder="you@company.com"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-400 mb-1.5 uppercase tracking-wider">Password</label>
+              <input
+                type="password" value={password} onChange={e => setPassword(e.target.value)} required
+                className="w-full bg-slate-900 border border-slate-700 text-white placeholder:text-slate-600 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-blue-500 transition-colors"
+                placeholder="••••••••"
+              />
+            </div>
+
+            {error && (
+              <div className="bg-red-900/40 border border-red-700 text-red-300 text-xs px-3 py-2 rounded-lg">{error}</div>
+            )}
+
+            <button
+              type="submit" disabled={loading}
+              className="w-full bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white font-semibold text-sm py-2.5 rounded-xl transition-colors shadow-lg shadow-blue-900/30"
+            >
+              {loading ? "Signing in…" : "Sign in"}
+            </button>
+          </form>
+
+          <div className="mt-4 pt-4 border-t border-slate-700">
+            <p className="text-xs text-slate-500 text-center mb-2">Quick access:</p>
+            <div className="flex gap-2">
+              <button onClick={() => { setEmail("admin@leadflow.io"); setPassword("admin123"); }}
+                className="flex-1 text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 py-1.5 rounded-lg transition-colors">
+                Admin
+              </button>
+              <button onClick={() => { setEmail("sarah@leadflow.io"); setPassword("rep123"); }}
+                className="flex-1 text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 py-1.5 rounded-lg transition-colors">
+                Sales Rep
+              </button>
+            </div>
           </div>
         </div>
 
-        <button
-          onClick={() => onLogin("admin")}
-          className="mt-5 w-full bg-blue-600 hover:bg-blue-500 text-white font-semibold text-sm py-2.5 rounded-xl transition-colors shadow-lg shadow-blue-900/30"
-        >
-          Sign in as Admin
-        </button>
-        <button
-          onClick={() => onLogin("rep")}
-          className="mt-2 w-full bg-slate-700 hover:bg-slate-600 text-slate-200 font-semibold text-sm py-2.5 rounded-xl transition-colors"
-        >
-          Sign in as Sales Rep
-        </button>
-
-        <p className="text-xs text-slate-600 text-center mt-4">Click either button to preview each view</p>
+        <p className="text-center text-xs text-slate-600 mt-6">© 2026 LeadFlow, Inc. All rights reserved.</p>
       </div>
-
-      <p className="text-center text-xs text-slate-600 mt-6">© 2026 LeadFlow, Inc. All rights reserved.</p>
     </div>
-  </div>
-);
+  );
+};
 
 /* ═══════════════════════════════════════════════════════════════════════════
    APP SHELL
@@ -1423,21 +1943,49 @@ const REP_NAV = [
 ];
 
 const App = () => {
-  const [view, setView] = useState(null); // null = login, "admin" | "rep"
-  const [page, setPage] = useState("admin-dashboard");
+  const [currentUser, setCurrentUser] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("lf_user")); } catch { return null; }
+  });
+  const [page,    setPage]    = useState("admin-dashboard");
   const [repPage, setRepPage] = useState("rep-dashboard");
 
-  const handleLogin = (role) => {
-    setView(role);
-    if (role === "admin") setPage("admin-dashboard");
+  // Verify token is still valid on mount
+  useEffect(() => {
+    const token = localStorage.getItem("lf_token");
+    if (!token) { setCurrentUser(null); return; }
+    apiFetch("/api/auth/me").then(u => {
+      setCurrentUser(u);
+      localStorage.setItem("lf_user", JSON.stringify(u));
+    }).catch(() => {
+      localStorage.removeItem("lf_token");
+      localStorage.removeItem("lf_user");
+      setCurrentUser(null);
+    });
+  }, []);
+
+  const handleLogin = (user) => {
+    setCurrentUser(user);
+    if (user.role === "admin") setPage("admin-dashboard");
     else setRepPage("rep-dashboard");
   };
 
-  const handleLogout = () => setView(null);
+  const handleLogout = () => {
+    localStorage.removeItem("lf_token");
+    localStorage.removeItem("lf_user");
+    setCurrentUser(null);
+  };
 
-  if (!view) return <Login onLogin={handleLogin} />;
+  if (!currentUser) return <Login onLogin={handleLogin} />;
 
-  if (view === "admin") {
+  const initials = currentUser.name.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase();
+  const userBadge = {
+    name:   currentUser.name,
+    role:   currentUser.role === "admin" ? "Admin" : "Sales Rep",
+    avatar: initials,
+    color:  currentUser.role === "admin" ? "bg-blue-600" : "bg-violet-500",
+  };
+
+  if (currentUser.role === "admin") {
     const pageMap = {
       "admin-dashboard": <AdminDashboard />,
       "admin-reps":      <AdminSalesReps />,
@@ -1452,19 +2000,10 @@ const App = () => {
     };
     return (
       <div className="flex h-screen overflow-hidden bg-slate-50">
-        <Sidebar
-          nav={ADMIN_NAV}
-          page={page}
-          onNavigate={setPage}
-          logoText="LeadFlow"
-          bottomItems={[{ id: "logout", label: "Sign out", icon: "logout" }]}
-        />
+        <Sidebar nav={ADMIN_NAV} page={page} onNavigate={setPage} logoText="LeadFlow"
+          bottomItems={[{ id: "logout", label: "Sign out", icon: "logout" }]} />
         <div className="flex-1 flex flex-col overflow-hidden">
-          <TopBar
-            title={titles[page] || "Dashboard"}
-            user={{ name: "Alex Johnson", role: "Admin", avatar: "AJ", color: "bg-blue-600" }}
-            onLogout={handleLogout}
-          />
+          <TopBar title={titles[page] || "Dashboard"} user={userBadge} onLogout={handleLogout} />
           <main className="flex-1 overflow-y-auto">
             {page === "logout" ? handleLogout() : pageMap[page] || <AdminDashboard />}
           </main>
@@ -1475,32 +2014,20 @@ const App = () => {
 
   // Sales Rep view
   const repPageMap = {
-    "rep-dashboard": <RepDashboard />,
-    "rep-leads":     <RepMyLeads />,
-    "rep-search":    <RepSearchLeads />,
+    "rep-dashboard": <RepDashboard user={currentUser} />,
+    "rep-leads":     <RepMyLeads   user={currentUser} />,
+    "rep-search":    <RepSearchLeads user={currentUser} />,
   };
-  const repTitles = {
-    "rep-dashboard": "My Dashboard",
-    "rep-leads":     "My Leads",
-    "rep-search":    "Search Leads",
-  };
+  const repTitles = { "rep-dashboard": "My Dashboard", "rep-leads": "My Leads", "rep-search": "Search Leads" };
   return (
     <div className="flex h-screen overflow-hidden bg-slate-50">
-      <Sidebar
-        nav={REP_NAV}
-        page={repPage}
+      <Sidebar nav={REP_NAV} page={repPage}
         onNavigate={(id) => { if (id === "logout") handleLogout(); else setRepPage(id); }}
-        logoText="LeadFlow"
-        bottomItems={[{ id: "logout", label: "Sign out", icon: "logout" }]}
-      />
+        logoText="LeadFlow" bottomItems={[{ id: "logout", label: "Sign out", icon: "logout" }]} />
       <div className="flex-1 flex flex-col overflow-hidden">
-        <TopBar
-          title={repTitles[repPage] || "My Dashboard"}
-          user={{ name: "Sarah Chen", role: "Senior Rep", avatar: "SC", color: "bg-violet-500" }}
-          onLogout={handleLogout}
-        />
+        <TopBar title={repTitles[repPage] || "My Dashboard"} user={userBadge} onLogout={handleLogout} />
         <main className="flex-1 overflow-y-auto">
-          {repPageMap[repPage] || <RepDashboard />}
+          {repPageMap[repPage] || <RepDashboard user={currentUser} />}
         </main>
       </div>
     </div>
