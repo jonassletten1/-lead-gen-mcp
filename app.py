@@ -622,41 +622,42 @@ def leads_by_rep(user: dict = Depends(require_admin)):
 
 # ── Scraping ──────────────────────────────────────────────────────────────────────
 async def _search_leads(query: str, api_key: str, search_cx: str, max_results: int = 10) -> List[Any]:
-    if not api_key or not search_cx:
-        return [{"error": "Google API key not configured. Ask your admin to add it in Settings."}]
+    if not api_key:
+        return [{"error": "Search API key not configured. Ask your admin to add it in Settings → API Config."}]
     results: List[Any] = []
     try:
         async with httpx.AsyncClient(timeout=10) as client:
-            start: int = 1
+            offset: int = 0
             while len(results) < max_results:
-                num = min(10, max_results - len(results))
+                count = min(10, max_results - len(results))
                 resp = await client.get(
-                    "https://www.googleapis.com/customsearch/v1",
-                    params={"key": api_key, "cx": search_cx,
-                            "q": query, "num": num, "start": start},
+                    "https://api.bing.microsoft.com/v7.0/search",
+                    headers={"Ocp-Apim-Subscription-Key": api_key},
+                    params={"q": query, "count": count, "offset": offset,
+                            "responseFilter": "Webpages", "mkt": "en-US"},
                 )
-                if resp.status_code == 429 or (resp.status_code == 403 and "rateLimitExceeded" in resp.text):
-                    results.append({"error": "Google Search API daily quota reached (100 searches/day). Try again tomorrow."})
-                    break
-                if resp.status_code == 403 and "accessNotConfigured" in resp.text:
-                    results.append({"error": "Custom Search API is not enabled. Enable it at: https://console.developers.google.com/apis/api/customsearch.googleapis.com/overview"})
+                if resp.status_code == 401:
+                    results.append({"error": "Bing API key is invalid. Check Settings → API Config."})
                     break
                 if resp.status_code == 403:
-                    print(f"[SCRAPE] 403 error body: {resp.text[:500]}")
-                    results.append({"error": f"Google API error 403: {resp.text[:300]}"})
+                    results.append({"error": "Bing API key does not have access. Make sure you created a Bing Web Search resource in Azure."})
+                    break
+                if resp.status_code == 429:
+                    results.append({"error": "Bing Search API quota reached. Try again later."})
                     break
                 resp.raise_for_status()
-                items: List[Any] = resp.json().get("items", [])
+                web_pages = resp.json().get("webPages", {})
+                items: List[Any] = web_pages.get("value", [])
                 if not items:
                     break
                 for item in items:
                     results.append({
-                        "title":   item.get("title", ""),
-                        "url":     item.get("link", ""),
+                        "title":   item.get("name", ""),
+                        "url":     item.get("url", ""),
                         "snippet": item.get("snippet", ""),
                     })
-                start = start + len(items)
-                if len(items) < num:
+                offset += len(items)
+                if len(items) < count:
                     break
     except Exception as e:
         results.append({"error": str(e)})
@@ -703,11 +704,9 @@ async def scrape(req: ScrapeRequest, user: dict = Depends(get_current_user)):
         )
 
     api_key   = org.get("google_api_key", "")
-    search_cx = org.get("google_search_cx", "")
-    # Debug: print key info so you can verify it's correct in server logs
-    print(f"[SCRAPE] org={org.get('name')} key_len={len(api_key)} key_start={api_key[:8]!r} key_end={api_key[-4:]!r} cx={search_cx!r}")
+    print(f"[SCRAPE] org={org.get('name')} key_len={len(api_key)} key_start={api_key[:8]!r}")
     query     = f"{req.industry} companies in {req.location}"
-    search_results = await _search_leads(query, api_key, search_cx, max_results=min(req.quantity, 30))
+    search_results = await _search_leads(query, api_key, "", max_results=min(req.quantity, 30))
 
     errors = [r for r in search_results if r.get("error")]
     if errors and len(errors) == len(search_results):
