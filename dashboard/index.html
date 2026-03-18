@@ -11,6 +11,8 @@
   <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script>
     tailwind.config = {
       theme: {
@@ -114,6 +116,8 @@ const Icon = ({ name, className = "w-5 h-5" }) => {
     check: "M5 13l4 4L19 7",
     eye: "M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8zM12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6z",
     download: "M4 16v1a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4",
+    map: "M9 20l-5.447-2.724A1 1 0 0 1 3 16.382V5.618a1 1 0 0 1 1.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0 0 21 18.382V7.618a1 1 0 0 0-.553-.894L15 4m0 13V4m0 0L9 7",
+    link: "M13.828 10.172a4 4 0 0 0-5.656 0l-4 4a4 4 0 1 0 5.656 5.656l1.102-1.101m-.758-4.899a4 4 0 0 0 5.656 0l4-4a4 4 0 0 0-5.656-5.656l-1.1 1.1",
   };
   return (
     <svg className={className} fill="none" stroke="currentColor" strokeWidth="2"
@@ -1314,11 +1318,15 @@ const RepMyLeads = ({ user = {} }) => {
               <ContactIcon active={lead.hasOwner} title={lead.hasOwner ? `Owner: ${lead.ownerName}` : "Owner unknown"}>👤</ContactIcon>
             </div>
           </td>
-          {/* Status */}
-          <td className="px-4 py-3">
-            <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${STATUS_COLORS[lead.status] || "bg-slate-100 text-slate-600"}`}>
-              {lead.status}
-            </span>
+          {/* Status — click to cycle */}
+          <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
+            <select
+              value={lead.status}
+              onChange={e => updateStatus(lead.id, e.target.value)}
+              className={`text-xs font-medium px-2 py-1 rounded-full border-0 cursor-pointer outline-none ${STATUS_COLORS[lead.status] || "bg-slate-100 text-slate-600"}`}
+              style={{appearance:"auto"}}>
+              {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
           </td>
           {/* Expand chevron */}
           <td className="px-3 py-3 text-slate-300">
@@ -1384,6 +1392,23 @@ const RepMyLeads = ({ user = {} }) => {
                   </div>
                 </div>
               </div>
+              {/* Status changer */}
+              <div className="mt-4 pt-4 border-t border-slate-200">
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Change Status</p>
+                <div className="flex flex-wrap gap-2">
+                  {STATUSES.map(s => (
+                    <button key={s} onClick={e => { e.stopPropagation(); updateStatus(lead.id, s); }}
+                      className={`text-xs font-semibold px-3 py-1.5 rounded-lg border transition-all ${
+                        lead.status === s
+                          ? `${STATUS_COLORS[s]} border-transparent ring-2 ring-offset-1 ring-blue-400`
+                          : "bg-white text-slate-500 border-slate-200 hover:border-slate-300 hover:bg-slate-50"
+                      }`}>
+                      {lead.status === s && "✓ "}{s}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               {/* Website screenshot placeholder */}
               {lead.hasWebsite && (
                 <div className="mt-4 border border-slate-200 rounded-xl overflow-hidden bg-white">
@@ -1493,6 +1518,66 @@ const RepMyLeads = ({ user = {} }) => {
   );
 };
 
+/* ─── Location Map ─── */
+const LocationMap = ({ center, radiusKm, onCenterChange }) => {
+  const containerRef  = useRef(null);
+  const mapRef        = useRef(null);
+  const markerRef     = useRef(null);
+  const circleRef     = useRef(null);
+
+  const TILE   = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
+  const ATTR   = "© <a href='https://www.openstreetmap.org/copyright'>OpenStreetMap</a>";
+  const CIRCLE = { color: "#3b82f6", fillColor: "#3b82f6", fillOpacity: 0.12, weight: 2 };
+
+  const addMarkerCircle = (map, latlng, km) => {
+    if (markerRef.current) { map.removeLayer(markerRef.current); map.removeLayer(circleRef.current); }
+    const marker = window.L.marker(latlng, { draggable: true }).addTo(map);
+    const circle = window.L.circle(latlng, { ...CIRCLE, radius: km * 1000 }).addTo(map);
+    marker.on("dragend", () => {
+      const p = marker.getLatLng();
+      circle.setLatLng(p);
+      onCenterChange([p.lat, p.lng]);
+    });
+    markerRef.current = marker;
+    circleRef.current = circle;
+  };
+
+  // Init map once
+  useEffect(() => {
+    if (!containerRef.current || mapRef.current || !window.L) return;
+    const map = window.L.map(containerRef.current, { zoomControl: true }).setView([20, 0], 2);
+    window.L.tileLayer(TILE, { attribution: ATTR }).addTo(map);
+    map.on("click", e => {
+      const { lat, lng } = e.latlng;
+      addMarkerCircle(map, [lat, lng], radiusKm);
+      onCenterChange([lat, lng]);
+    });
+    mapRef.current = map;
+    return () => { map.remove(); mapRef.current = null; };
+  }, []);
+
+  // Pan + update marker when center changes from outside (city search)
+  useEffect(() => {
+    if (!mapRef.current || !center) return;
+    mapRef.current.setView(center, 11);
+    addMarkerCircle(mapRef.current, center, radiusKm);
+  }, [center?.[0], center?.[1]]);
+
+  // Update circle radius when slider changes
+  useEffect(() => {
+    if (!circleRef.current) return;
+    circleRef.current.setRadius(radiusKm * 1000);
+    if (mapRef.current && markerRef.current) {
+      const pos = markerRef.current.getLatLng();
+      mapRef.current.fitBounds(window.L.circle(pos, { radius: radiusKm * 1000 }).getBounds().pad(0.15));
+    }
+  }, [radiusKm]);
+
+  return (
+    <div ref={containerRef} style={{ height: "300px", width: "100%", borderRadius: "12px", position: "relative", zIndex: 1 }} />
+  );
+};
+
 /* ─── Rep Search Leads ─── */
 const RepSearchLeads = ({ user = {} }) => {
   const [phase, setPhase] = useState("form");
@@ -1511,10 +1596,46 @@ const RepSearchLeads = ({ user = {} }) => {
   }, []);
 
   // Section 1
-  const [industryInput, setIndustryInput] = useState("");
-  const [showDropdown, setShowDropdown] = useState(false);
-  const [location, setLocation] = useState("");
-  const [radius, setRadius] = useState("25km");
+  // Industries checkbox state
+  const [selectedIndustries, setSelectedIndustries] = useState(new Set());
+  const [otherIndustry, setOtherIndustry]           = useState("");
+  const [location, setLocation]           = useState("");
+  const [radiusKm, setRadiusKm]           = useState(25);
+  const radius = `${radiusKm}km`;
+
+  // Location live-search
+  const [locSuggestions, setLocSuggestions] = useState([]);
+  const [locLoading, setLocLoading]         = useState(false);
+  const [showLocDrop, setShowLocDrop]       = useState(false);
+  const [mapCenter, setMapCenter]           = useState(null);
+  const locTimerRef                         = useRef(null);
+
+  const handleLocInput = (val) => {
+    setLocation(val);
+    setShowLocDrop(true);
+    clearTimeout(locTimerRef.current);
+    if (val.trim().length < 2) { setLocSuggestions([]); return; }
+    locTimerRef.current = setTimeout(async () => {
+      setLocLoading(true);
+      try {
+        const data = await apiFetch(`/api/geocode?q=${encodeURIComponent(val)}`);
+        setLocSuggestions(Array.isArray(data) ? data : []);
+      } catch (e) {
+        setLocSuggestions([]);
+      } finally {
+        setLocLoading(false);
+      }
+    }, 300);
+  };
+
+  const selectLocation = (item) => {
+    const parts = item.display_name.split(",").map(s => s.trim());
+    const label = parts.slice(0, 3).join(", ");
+    setLocation(label);
+    setMapCenter([parseFloat(item.lat), parseFloat(item.lon)]);
+    setLocSuggestions([]);
+    setShowLocDrop(false);
+  };
 
   // Section 2
   const [criteria, setCriteria] = useState({});
@@ -1532,14 +1653,15 @@ const RepSearchLeads = ({ user = {} }) => {
   const INDUSTRIES = [
     "Roofing","Plumbing","HVAC","Landscaping","Electrical",
     "Cleaning Services","Construction","Real Estate","Restaurants",
-    "Dental / Medical","Auto Repair","Legal Services","Accounting",
-    "Fitness / Gym","Salon / Spa","IT Services","Marketing Agency",
-    "Pest Control","Moving Services","Photography","Insurance",
+    "Dental/Medical","Auto Repair","Legal Services","Accounting",
+    "Fitness/Gym","Salon/Spa","Photography","IT Services","Marketing Agency",
   ];
 
-  const filteredIndustries = industryInput.trim()
-    ? INDUSTRIES.filter(i => i.toLowerCase().includes(industryInput.toLowerCase()))
-    : INDUSTRIES;
+  const toggleIndustry = (ind) => setSelectedIndustries(s => {
+    const n = new Set(s); n.has(ind) ? n.delete(ind) : n.add(ind); return n;
+  });
+
+  const industryForSearch = [...selectedIndustries, ...(otherIndustry.trim() ? [otherIndustry.trim()] : [])].join(", ");
 
   const CRITERIA_OPTIONS = [
     { id: "bad_website",  label: "Bad or outdated website"          },
@@ -1575,7 +1697,7 @@ const RepSearchLeads = ({ user = {} }) => {
     </div>
   );
 
-  const canSearch = industryInput.trim() && location.trim();
+  const canSearch = (selectedIndustries.size > 0 || otherIndustry.trim()) && location.trim();
 
   const startScraping = async () => {
     setPhase("scraping");
@@ -1596,7 +1718,7 @@ const RepSearchLeads = ({ user = {} }) => {
       const data = await apiFetch("/api/scrape", {
         method: "POST",
         body: JSON.stringify({
-          industry:    industryInput.trim(),
+          industry:    industryForSearch,
           location:    location.trim(),
           radius,
           criteria,
@@ -1647,8 +1769,8 @@ const RepSearchLeads = ({ user = {} }) => {
             phone:         r.phone || "",
             website:       r.website || "",
             city:          r.city   || location.trim(),
-            industry:      r.industry || industryInput.trim(),
-            source_search: r.source_search || `${industryInput} in ${location}`,
+            industry:      r.industry || industryForSearch,
+            source_search: r.source_search || `${industryForSearch} in ${location}`,
             status:        "Not Contacted",
           }),
         })
@@ -1681,47 +1803,122 @@ const RepSearchLeads = ({ user = {} }) => {
         </div>
         <div className="p-5 space-y-4">
           <div>
-            <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Business Type / Niche</label>
+            <div className="flex items-center justify-between mb-2">
+              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider">Business Type / Niche</label>
+              {selectedIndustries.size > 0 && (
+                <span className="text-xs font-semibold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">
+                  {selectedIndustries.size} selected
+                </span>
+              )}
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+              {INDUSTRIES.map(ind => (
+                <button key={ind} type="button" onClick={() => toggleIndustry(ind)}
+                  className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-left transition-all text-xs font-medium ${
+                    selectedIndustries.has(ind)
+                      ? "border-blue-400 bg-blue-50 text-blue-700"
+                      : "border-slate-200 bg-slate-50 text-slate-600 hover:border-slate-300 hover:bg-white"
+                  }`}>
+                  <div className={`w-3.5 h-3.5 rounded flex-shrink-0 border flex items-center justify-center transition-colors ${
+                    selectedIndustries.has(ind) ? "bg-blue-500 border-blue-500" : "border-slate-300 bg-white"
+                  }`}>
+                    {selectedIndustries.has(ind) && <Icon name="check" className="w-2.5 h-2.5 text-white" />}
+                  </div>
+                  {ind}
+                </button>
+              ))}
+              {/* Other */}
+              <button type="button" onClick={() => toggleIndustry("__other__")}
+                className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-left transition-all text-xs font-medium ${
+                  selectedIndustries.has("__other__")
+                    ? "border-blue-400 bg-blue-50 text-blue-700"
+                    : "border-slate-200 bg-slate-50 text-slate-600 hover:border-slate-300 hover:bg-white"
+                }`}>
+                <div className={`w-3.5 h-3.5 rounded flex-shrink-0 border flex items-center justify-center transition-colors ${
+                  selectedIndustries.has("__other__") ? "bg-blue-500 border-blue-500" : "border-slate-300 bg-white"
+                }`}>
+                  {selectedIndustries.has("__other__") && <Icon name="check" className="w-2.5 h-2.5 text-white" />}
+                </div>
+                Other
+              </button>
+            </div>
+            {selectedIndustries.has("__other__") && (
+              <input
+                type="text" value={otherIndustry} onChange={e => setOtherIndustry(e.target.value)}
+                className="mt-2 w-full border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-700 bg-slate-50 outline-none focus:border-blue-400 transition-colors"
+                placeholder="Describe the industry…"
+              />
+            )}
+          </div>
+          {/* City live-search */}
+          <div>
+            <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">City / Area</label>
             <div className="relative">
               <input
-                value={industryInput}
-                onChange={e => { setIndustryInput(e.target.value); setShowDropdown(true); }}
-                onFocus={() => setShowDropdown(true)}
-                onBlur={() => setTimeout(() => setShowDropdown(false), 150)}
+                value={location}
+                onChange={e => handleLocInput(e.target.value)}
+                onFocus={() => locSuggestions.length && setShowLocDrop(true)}
+                onBlur={() => setTimeout(() => setShowLocDrop(false), 200)}
                 className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-700 bg-slate-50 outline-none focus:border-blue-400 focus:bg-white transition-colors pr-8"
-                placeholder="Type or select: Roofing, HVAC, Plumbing…"
+                placeholder="Type a city, e.g. Houston, Texas…"
               />
-              <Icon name="chevronRight" className="w-4 h-4 text-slate-400 absolute right-3 top-3 rotate-90 pointer-events-none" />
-              {showDropdown && filteredIndustries.length > 0 && (
-                <div className="absolute z-30 top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-xl overflow-hidden max-h-48 overflow-y-auto">
-                  {filteredIndustries.map(ind => (
-                    <button key={ind} onMouseDown={() => { setIndustryInput(ind); setShowDropdown(false); }}
-                      className={`w-full text-left px-4 py-2.5 text-sm transition-colors hover:bg-blue-50 hover:text-blue-700 ${industryInput === ind ? "bg-blue-50 text-blue-700 font-semibold" : "text-slate-700"}`}>
-                      {ind}
-                    </button>
-                  ))}
+              {locLoading
+                ? <div className="absolute right-3 top-3 w-4 h-4 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
+                : <Icon name="search" className="w-4 h-4 text-slate-400 absolute right-3 top-3 pointer-events-none" />
+              }
+              {showLocDrop && locSuggestions.length > 0 && (
+                <div className="absolute z-40 top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-xl overflow-hidden max-h-52 overflow-y-auto">
+                  {locSuggestions.map((item, i) => {
+                    const parts = item.display_name.split(",").map(s => s.trim());
+                    return (
+                      <button key={i} onMouseDown={() => selectLocation(item)}
+                        className="w-full text-left px-4 py-2.5 hover:bg-blue-50 transition-colors border-b border-slate-50 last:border-0">
+                        <p className="text-sm font-medium text-slate-800 truncate">{parts[0]}</p>
+                        <p className="text-xs text-slate-400 truncate">{parts.slice(1, 3).join(", ")}</p>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              {showLocDrop && !locLoading && locSuggestions.length === 0 && location.length >= 2 && (
+                <div className="absolute z-40 top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-xl px-4 py-3 text-sm text-slate-400">
+                  No results found
                 </div>
               )}
             </div>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div className="sm:col-span-2">
-              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">City / Area</label>
-              <input value={location} onChange={e => setLocation(e.target.value)}
-                className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-700 bg-slate-50 outline-none focus:border-blue-400 focus:bg-white transition-colors"
-                placeholder="e.g. Houston, Texas" />
+
+          {/* Radius slider */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider">Search Radius</label>
+              <span className="text-sm font-bold text-blue-600 bg-blue-50 px-2.5 py-0.5 rounded-lg">{radiusKm} km</span>
             </div>
-            <div>
-              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Radius</label>
-              <select value={radius} onChange={e => setRadius(e.target.value)}
-                className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-700 bg-slate-50 outline-none focus:border-blue-400 focus:bg-white transition-colors h-[42px]">
-                <option value="10km">10 km</option>
-                <option value="25km">25 km</option>
-                <option value="50km">50 km</option>
-                <option value="100km">100 km</option>
-              </select>
+            <input type="range" min="0" max="4" step="1" value={[5,10,25,50,100].indexOf(radiusKm)}
+              onChange={e => setRadiusKm([5,10,25,50,100][e.target.value])}
+              className="w-full accent-blue-600 cursor-pointer" style={{height:"6px"}} />
+            <div className="flex justify-between text-xs text-slate-400 mt-1.5">
+              {[5,10,25,50,100].map(v => <span key={v} className={radiusKm === v ? "text-blue-600 font-bold" : ""}>{v}</span>)}
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* ── Map card ── */}
+      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-visible">
+        <div className="px-5 py-4 border-b border-slate-100 flex items-center gap-3">
+          <div className="w-7 h-7 rounded-lg bg-blue-100 flex items-center justify-center flex-shrink-0">
+            <Icon name="map" className="w-3.5 h-3.5 text-blue-600" />
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-slate-800">Search Area</p>
+            <p className="text-xs text-slate-400 mt-0.5">
+              {mapCenter ? `${mapCenter[0].toFixed(4)}, ${mapCenter[1].toFixed(4)} · ${radiusKm} km radius` : "Type a city above or click the map to set a location"}
+            </p>
+          </div>
+        </div>
+        <div className="p-3">
+          <LocationMap center={mapCenter} radiusKm={radiusKm} onCenterChange={setMapCenter} />
         </div>
       </div>
 
@@ -1872,7 +2069,7 @@ const RepSearchLeads = ({ user = {} }) => {
             <>
               <p className="text-sm font-semibold text-slate-800">Ready to search</p>
               <p className="text-xs text-slate-500 mt-0.5">
-                <span className="font-medium text-slate-700">{industryInput}</span> · <span className="font-medium text-slate-700">{location}</span> · {radius} · up to <span className="font-medium text-slate-700">{quantity} leads</span>
+                <span className="font-medium text-slate-700">{industryForSearch || "—"}</span> · <span className="font-medium text-slate-700">{location}</span> · {radius} · up to <span className="font-medium text-slate-700">{quantity} leads</span>
               </p>
             </>
           ) : (
@@ -1901,7 +2098,7 @@ const RepSearchLeads = ({ user = {} }) => {
         </div>
         <h2 className="text-lg font-bold text-slate-800">Scraping in progress…</h2>
         <p className="text-sm text-slate-500 mt-1">
-          <span className="font-medium text-slate-700">{industryInput}</span> businesses near <span className="font-medium text-slate-700">{location}</span>
+          <span className="font-medium text-slate-700">{industryForSearch}</span> businesses near <span className="font-medium text-slate-700">{location}</span>
         </p>
       </div>
       <div className="w-full space-y-2.5">
@@ -1932,7 +2129,7 @@ const RepSearchLeads = ({ user = {} }) => {
           <h2 className="text-xl font-bold text-slate-800">
             {scrapeError ? "Search failed" : `${results.length} leads found`}
           </h2>
-          <p className="text-sm text-slate-500 mt-0.5">{industryInput} · {location} · {radius}</p>
+          <p className="text-sm text-slate-500 mt-0.5">{industryForSearch || "—"} · {location} · {radius}</p>
         </div>
         <button onClick={() => { setPhase("form"); setSelectedLeads(new Set()); setSavedLeads(new Set()); setResults([]); setScrapeError(""); }}
           className="text-xs font-semibold text-slate-600 border border-slate-200 rounded-xl px-4 py-2 hover:bg-slate-50 bg-white transition-colors flex-shrink-0">

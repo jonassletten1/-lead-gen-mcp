@@ -318,6 +318,24 @@ def reset_password(body: dict = Body(...)):
     return {"message": "Password updated successfully"}
 
 
+@app.get("/api/geocode")
+async def geocode(q: str, request: Request):
+    """Proxy Nominatim geocoding to avoid browser CORS issues."""
+    _check_rate("geocode", request.client.host, max_calls=30, window_seconds=60)
+    if not q or len(q.strip()) < 2:
+        return []
+    async with httpx.AsyncClient(timeout=8) as client:
+        try:
+            resp = await client.get(
+                "https://nominatim.openstreetmap.org/search",
+                params={"q": q.strip(), "format": "json", "limit": 6, "addressdetails": "1"},
+                headers={"User-Agent": "LeadFlow/1.0 sales-dashboard"},
+            )
+            return resp.json()
+        except Exception:
+            return []
+
+
 @app.get("/api/auth/me")
 def me(user: dict = Depends(get_current_user)):
     return {"id": user["id"], "email": user["email"], "name": user["name"], "role": user["role"]}
@@ -632,6 +650,8 @@ async def scrape(req: ScrapeRequest, user: dict = Depends(get_current_user)):
 
     api_key   = org.get("google_api_key", "")
     search_cx = org.get("google_search_cx", "")
+    # Debug: print key info so you can verify it's correct in server logs
+    print(f"[SCRAPE] org={org.get('name')} key_len={len(api_key)} key_start={api_key[:8]!r} key_end={api_key[-4:]!r} cx={search_cx!r}")
     query     = f"{req.industry} companies in {req.location}"
     search_results = await _search_leads(query, api_key, search_cx, max_results=min(req.quantity, 30))
 
