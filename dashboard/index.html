@@ -2315,14 +2315,14 @@ const Login = ({ onLogin }) => {
           <div className="flex-1 h-px bg-slate-700" />
         </div>
 
-        {/* Org mode toggle */}
+        {/* Org mode toggle — "Create a team" temporarily disabled */}
         <div className="flex rounded-xl overflow-hidden border border-slate-700 mb-4">
-          <button type="button" onClick={() => setSuOrgMode("join")}
-            className={`flex-1 text-xs font-semibold py-2 transition-colors ${suOrgMode === "join" ? "bg-blue-600 text-white" : "bg-slate-900 text-slate-400 hover:text-slate-300"}`}>
+          <button type="button"
+            className="flex-1 text-xs font-semibold py-2 bg-blue-600 text-white cursor-default">
             Join a team
           </button>
-          <button type="button" onClick={() => setSuOrgMode("create")}
-            className={`flex-1 text-xs font-semibold py-2 transition-colors ${suOrgMode === "create" ? "bg-blue-600 text-white" : "bg-slate-900 text-slate-400 hover:text-slate-300"}`}>
+          <button type="button" disabled title="New organizations are not open for registration yet"
+            className="flex-1 text-xs font-semibold py-2 bg-slate-800 text-slate-600 cursor-not-allowed">
             Create a team
           </button>
         </div>

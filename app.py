@@ -240,6 +240,10 @@ def register(request: Request, body: dict = Body(...)):
     if sb.table("users").select("id").eq("email", email).execute().data:
         raise HTTPException(status_code=400, detail="Email already registered")
 
+    # Temporarily lock new org creation — invite-only only
+    if not invite_code:
+        raise HTTPException(status_code=403, detail="New organization registration is currently closed. Use an invite code to join an existing team.")
+
     # Determine role + org
     if invite_code:
         org_data = sb.table("organizations").select("*").eq("invite_code", invite_code).execute().data
