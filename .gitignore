@@ -1,6 +1,30 @@
+# Secrets — never commit these
 .env
+.env.local
+.env.*
 credentials.json
+*.json.key
+stellar-aleph-*.json
+
+# Database
+*.db
+*.sqlite
+
+# Python
 __pycache__/
 *.pyc
+*.pyo
 .venv/
 venv/
+env/
+*.egg-info/
+
+# Migration scripts (contain org/user data)
+migrate_auth.py
+migrate_org.py
+
+# macOS
+.DS_Store
+
+# Logs
+*.log
