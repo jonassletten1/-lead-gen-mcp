@@ -362,8 +362,19 @@ def get_org(user: dict = Depends(get_current_user)):
         "monthly_scrape_limit":   org["monthly_scrape_limit"],
         "scrapes_used_this_month": org["scrapes_used_this_month"],
         "has_google_api":         bool(org.get("google_api_key")),
+        "google_api_key":         org.get("google_api_key", "") if is_owner else None,
         "google_search_cx":       org.get("google_search_cx", "") if is_owner else None,
         "owner_id":               org["owner_id"],
+        "logo_url":               org.get("logo_url", ""),
+        "location":               org.get("location", ""),
+        "country":                org.get("country", ""),
+        "website":                org.get("website", ""),
+        "industry":               org.get("industry", ""),
+        "phone":                  org.get("phone", ""),
+        "email":                  org.get("email", ""),
+        "description":            org.get("description", ""),
+        "primary_color":          org.get("primary_color", "#2563eb"),
+        "timezone":               org.get("timezone", "UTC"),
     }
 
 
@@ -375,10 +386,14 @@ def update_org(body: dict = Body(...), user: dict = Depends(require_admin)):
     if org["owner_id"] != user["id"]:
         raise HTTPException(status_code=403, detail="Only the organization owner can update settings")
     patch: dict = {}
-    if body.get("name"):              patch["name"]             = body["name"]
-    if "google_api_key" in body:      patch["google_api_key"]   = body["google_api_key"]
-    if "google_search_cx" in body:    patch["google_search_cx"] = body["google_search_cx"]
+    if body.get("name"):               patch["name"]               = body["name"]
+    if "google_api_key" in body:       patch["google_api_key"]     = body["google_api_key"]
+    if "google_search_cx" in body:     patch["google_search_cx"]   = body["google_search_cx"]
     if "monthly_scrape_limit" in body: patch["monthly_scrape_limit"] = int(body["monthly_scrape_limit"])
+    for field in ("logo_url", "location", "country", "website", "industry",
+                  "phone", "email", "description", "primary_color", "timezone"):
+        if field in body:
+            patch[field] = str(body[field])[:500]
     if patch:
         sb.table("organizations").update(patch).eq("id", org["id"]).execute()
     return get_org(user)
@@ -460,6 +475,21 @@ def reject_member(user_id: str, admin: dict = Depends(require_admin)):
                     sb_admin.auth.admin.delete_user(u.id)
         except Exception:
             pass
+    return {"ok": True}
+
+
+@app.delete("/api/org/members/{user_id}")
+def remove_member(user_id: str, admin: dict = Depends(require_admin)):
+    """Remove a rep from the organization (does not delete the user account)."""
+    org = get_user_org(admin)
+    if not org:
+        raise HTTPException(status_code=404, detail="Organization not found")
+    target = sb.table("users").select("id,organization_id,role").eq("id", user_id).execute().data
+    if not target or target[0].get("organization_id") != org["id"]:
+        raise HTTPException(status_code=404, detail="User not found in your organization")
+    if user_id == admin["id"]:
+        raise HTTPException(status_code=400, detail="Cannot remove yourself")
+    sb.table("users").update({"organization_id": None}).eq("id", user_id).execute()
     return {"ok": True}
 
 
