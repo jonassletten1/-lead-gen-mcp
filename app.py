@@ -4,10 +4,12 @@ LeadFlow Dashboard Backend — FastAPI + Supabase Auth + Organizations
 """
 
 import asyncio
+import collections
 import json
 import re
 import os
 import secrets
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional, List
@@ -15,9 +17,9 @@ from typing import Any, Optional, List
 import httpx
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
-from fastapi import FastAPI, Depends, HTTPException, Body
+from fastapi import FastAPI, Depends, HTTPException, Body, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from supabase import create_client, Client
@@ -29,6 +31,28 @@ SUPABASE_URL         = os.getenv("SUPABASE_URL", "")
 SUPABASE_KEY         = os.getenv("SUPABASE_KEY", "")
 SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
 STATUSES = ["Not Contacted", "Contacted", "Responded", "Converted", "Not Interested"]
+
+# Allowed CORS origins — set ALLOWED_ORIGINS in .env as comma-separated list
+_raw_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:8000")
+ALLOWED_ORIGINS: List[str] = [o.strip() for o in _raw_origins.split(",") if o.strip()]
+
+# ── Rate limiting ─────────────────────────────────────────────────────────────────
+# { (endpoint_key, ip): [timestamp, ...] }
+_rate_store: dict = collections.defaultdict(list)
+
+
+def _check_rate(key: str, ip: str, max_calls: int, window_seconds: int) -> None:
+    """Raise 429 if ip exceeds max_calls in the last window_seconds for key."""
+    bucket = f"{key}:{ip}"
+    now = time.time()
+    cutoff = now - window_seconds
+    _rate_store[bucket] = [t for t in _rate_store[bucket] if t > cutoff]
+    if len(_rate_store[bucket]) >= max_calls:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Too many requests. Please wait before trying again.",
+        )
+    _rate_store[bucket].append(now)
 
 # ── Supabase clients ──────────────────────────────────────────────────────────────
 sb: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -153,11 +177,23 @@ app = FastAPI(title="LeadFlow API", version="4.0.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
 )
+
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = "geolocation=(), camera=(), microphone=()"
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 # ── Dashboard ─────────────────────────────────────────────────────────────────────
@@ -168,7 +204,10 @@ def serve_dashboard():
 
 # ── Auth routes ───────────────────────────────────────────────────────────────────
 @app.post("/api/auth/login")
-def login(req: LoginRequest):
+def login(req: LoginRequest, request: Request):
+    _check_rate("login", request.client.host, max_calls=10, window_seconds=300)
+    if len(req.email) > 254 or len(req.password) > 128:
+        raise HTTPException(status_code=400, detail="Invalid input")
     try:
         res = sb.auth.sign_in_with_password({"email": req.email.lower().strip(), "password": req.password})
     except Exception:
@@ -177,6 +216,10 @@ def login(req: LoginRequest):
     if not user_res.data:
         raise HTTPException(status_code=401, detail="User not found")
     u = user_res.data[0]
+    if u.get("status") == "pending":
+        raise HTTPException(status_code=403, detail="PENDING_APPROVAL")
+    if u.get("status") == "rejected":
+        raise HTTPException(status_code=403, detail="REJECTED")
     return {
         "token": res.session.access_token,
         "user":  {"id": u["id"], "email": u["email"], "name": u["name"], "role": u["role"]},
@@ -184,12 +227,13 @@ def login(req: LoginRequest):
 
 
 @app.post("/api/auth/register", status_code=201)
-def register(body: dict = Body(...)):
-    email       = body.get("email", "").lower().strip()
-    password    = body.get("password", "")
-    name        = body.get("name", "").strip()
-    invite_code = body.get("invite_code", "").strip().upper()
-    org_name    = body.get("org_name", "").strip()
+def register(request: Request, body: dict = Body(...)):
+    _check_rate("register", request.client.host, max_calls=5, window_seconds=3600)
+    email       = str(body.get("email", "")).lower().strip()[:254]
+    password    = str(body.get("password", ""))[:128]
+    name        = str(body.get("name", "")).strip()[:100]
+    invite_code = str(body.get("invite_code", "")).strip().upper()[:20]
+    org_name    = str(body.get("org_name", "")).strip()[:100]
 
     if not email or not password or not name:
         raise HTTPException(status_code=400, detail="name, email and password are required")
@@ -242,8 +286,9 @@ def register(body: dict = Body(...)):
 
 
 @app.post("/api/auth/forgot-password")
-def forgot_password(body: dict = Body(...)):
-    email = body.get("email", "").lower().strip()
+def forgot_password(request: Request, body: dict = Body(...)):
+    _check_rate("forgot", request.client.host, max_calls=3, window_seconds=3600)
+    email = str(body.get("email", "")).lower().strip()[:254]
     if email:
         try:
             sb.auth.reset_password_for_email(email, {"redirect_to": "http://localhost:8000"})
