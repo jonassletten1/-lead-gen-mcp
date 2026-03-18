@@ -377,6 +377,23 @@ def reset_usage(user: dict = Depends(require_admin)):
     return {"ok": True}
 
 
+@app.post("/api/org/join")
+def join_org(request: Request, body: dict = Body(...), user: dict = Depends(get_current_user)):
+    """Let an already-logged-in rep join an org via invite code."""
+    _check_rate("join_org", request.client.host, max_calls=10, window_seconds=600)
+    if user.get("organization_id"):
+        raise HTTPException(status_code=400, detail="You are already in an organization")
+    invite_code = str(body.get("invite_code", "")).strip().upper()[:20]
+    if not invite_code:
+        raise HTTPException(status_code=400, detail="Invite code is required")
+    org_data = sb.table("organizations").select("id").eq("invite_code", invite_code).execute().data
+    if not org_data:
+        raise HTTPException(status_code=400, detail="Invalid invite code")
+    org_id = org_data[0]["id"]
+    sb.table("users").update({"organization_id": org_id, "status": "pending"}).eq("id", user["id"]).execute()
+    return {"message": "Request submitted. You will be able to use the platform once the admin approves your account."}
+
+
 @app.get("/api/org/members")
 def org_members(user: dict = Depends(require_admin)):
     org = get_user_org(user)

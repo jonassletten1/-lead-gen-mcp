@@ -1060,13 +1060,34 @@ const RepDashboard = ({ user = {} }) => {
   const [stats, setStats]     = useState({ total: 0 });
   const [loading, setLoading] = useState(true);
   const [orgName, setOrgName] = useState("");
+  const [hasOrg, setHasOrg]   = useState(true);
+
+  // Join org state
+  const [joinCode, setJoinCode]       = useState("");
+  const [joinLoading, setJoinLoading] = useState(false);
+  const [joinMsg, setJoinMsg]         = useState("");
+  const [joinErr, setJoinErr]         = useState("");
 
   useEffect(() => {
     Promise.all([apiFetch("/api/leads"), apiFetch("/api/leads/stats"), apiFetch("/api/org").catch(() => null)])
-      .then(([leads, s, org]) => { setMyLeads(leads.map(normLead)); setStats(s); if (org) setOrgName(org.name); })
+      .then(([leads, s, org]) => {
+        setMyLeads(leads.map(normLead)); setStats(s);
+        if (org) { setOrgName(org.name); setHasOrg(true); }
+        else setHasOrg(false);
+      })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
+
+  const handleJoin = async (e) => {
+    e.preventDefault();
+    setJoinErr(""); setJoinLoading(true);
+    try {
+      const res = await apiFetch("/api/org/join", { method: "POST", body: JSON.stringify({ invite_code: joinCode }) });
+      setJoinMsg(res.message);
+    } catch (err) { setJoinErr(err.message); }
+    finally { setJoinLoading(false); }
+  };
 
   const respRate = stats.total
     ? Math.round(((stats["Responded"]||0) + (stats["Converted"]||0)) / stats.total * 100)
@@ -1081,6 +1102,38 @@ const RepDashboard = ({ user = {} }) => {
 
   return (
     <div className="p-6 space-y-6">
+
+      {/* No org — join card */}
+      {!hasOrg && !loading && (
+        <div className="bg-amber-50 border-2 border-amber-200 rounded-2xl p-6">
+          <div className="flex items-start gap-4">
+            <div className="w-10 h-10 bg-amber-100 rounded-xl flex items-center justify-center flex-shrink-0 mt-0.5">
+              <Icon name="link" className="w-5 h-5 text-amber-600" />
+            </div>
+            <div className="flex-1">
+              <p className="font-bold text-amber-900 text-base">Connect to your team</p>
+              <p className="text-amber-700 text-sm mt-0.5 mb-4">Enter the invite code from your admin to join their organization.</p>
+              {joinMsg ? (
+                <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 text-emerald-800 text-sm font-medium">{joinMsg}</div>
+              ) : (
+                <form onSubmit={handleJoin} className="flex gap-2 items-center">
+                  <input
+                    type="text" value={joinCode} onChange={e => setJoinCode(e.target.value.toUpperCase())}
+                    maxLength={8} placeholder="A1B2C3D4" required
+                    className="font-mono tracking-widest bg-white border border-amber-300 rounded-xl px-4 py-2.5 text-sm text-slate-800 outline-none focus:border-amber-500 transition-colors w-40 uppercase"
+                  />
+                  <button type="submit" disabled={joinLoading}
+                    className="bg-amber-500 hover:bg-amber-400 disabled:opacity-60 text-white font-semibold text-sm px-5 py-2.5 rounded-xl transition-colors">
+                    {joinLoading ? "Joining…" : "Join team"}
+                  </button>
+                </form>
+              )}
+              {joinErr && <p className="text-red-600 text-xs mt-2">{joinErr}</p>}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Welcome banner */}
       <div className="bg-gradient-to-r from-blue-600 to-blue-700 rounded-2xl p-5 text-white flex items-center justify-between">
         <div>
