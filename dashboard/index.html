@@ -139,33 +139,6 @@ const STATUS_STYLES = {
   "Not Interested": "bg-red-100 text-red-600",
 };
 
-const LEADS = [
-  { id: 1,  company: "Apex HVAC Solutions",      contact: "Robert Mills",    email: "r.mills@apexhvac.com",     phone: "(713) 555-0182", city: "Houston, TX",      rep: "Sarah Chen",     status: "Converted",      date: "Mar 12, 2026", website: "apexhvac.com"     },
-  { id: 2,  company: "BlueSky Plumbing Co",       contact: "Dana Cruz",       email: "dana@blueskyplumb.com",    phone: "(713) 555-0234", city: "Houston, TX",      rep: "Sarah Chen",     status: "Responded",      date: "Mar 14, 2026", website: "blueskyplumb.com" },
-  { id: 3,  company: "Premier Roofing Group",     contact: "Kevin Hart",      email: "k.hart@premieroof.com",    phone: "(214) 555-0311", city: "Dallas, TX",       rep: "Marcus Webb",    status: "Contacted",      date: "Mar 15, 2026", website: "premieroof.com"   },
-  { id: 4,  company: "GreenLeaf Landscaping",     contact: "Susan Park",      email: "susan@greenleaf.io",       phone: "(512) 555-0447", city: "Austin, TX",       rep: "Priya Nair",     status: "Converted",      date: "Mar 10, 2026", website: "greenleaf.io"     },
-  { id: 5,  company: "Lone Star Electric",        contact: "Bill Torres",     email: "bill@lonestarelectric.com",phone: "(832) 555-0523", city: "Houston, TX",      rep: "Priya Nair",     status: "Not Contacted",  date: "Mar 16, 2026", website: "lonestarelectric.com"},
-  { id: 6,  company: "Sunrise Pool & Spa",        contact: "Heather Moon",    email: "hmoon@sunrisepools.com",   phone: "(480) 555-0619", city: "Phoenix, AZ",      rep: "James Okafor",   status: "Responded",      date: "Mar 13, 2026", website: "sunrisepools.com" },
-  { id: 7,  company: "TechBuild Contractors",     contact: "Alan Patel",      email: "alan@techbuild.co",        phone: "(312) 555-0712", city: "Chicago, IL",      rep: "Lena Vasquez",   status: "Not Interested", date: "Mar 11, 2026", website: "techbuild.co"     },
-  { id: 8,  company: "Coastal Window & Door",     contact: "Maria Santos",    email: "m.santos@coastalwd.com",   phone: "(305) 555-0815", city: "Miami, FL",        rep: "Derek Huang",    status: "Contacted",      date: "Mar 15, 2026", website: "coastalwd.com"    },
-  { id: 9,  company: "Rocky Mountain Movers",     contact: "Jake Ellis",      email: "j.ellis@rockymove.com",    phone: "(303) 555-0934", city: "Denver, CO",       rep: "Aisha Thompson", status: "Converted",      date: "Mar 9,  2026", website: "rockymove.com"    },
-  { id: 10, company: "Harvest Pest Control",      contact: "Nina Briggs",     email: "nina@harvestpc.com",       phone: "(602) 555-1012", city: "Phoenix, AZ",      rep: "Tom Reilly",     status: "Contacted",      date: "Mar 16, 2026", website: "harvestpc.com"    },
-  { id: 11, company: "Bright Future Solar",       contact: "Leo Kim",         email: "leo@bfsolar.io",           phone: "(619) 555-1108", city: "San Diego, CA",    rep: "Sarah Chen",     status: "Responded",      date: "Mar 14, 2026", website: "bfsolar.io"       },
-  { id: 12, company: "Summit Garage Doors",       contact: "Carol White",     email: "carol@summitgd.com",       phone: "(720) 555-1221", city: "Denver, CO",       rep: "Marcus Webb",    status: "Not Contacted",  date: "Mar 17, 2026", website: "summitgd.com"     },
-  { id: 13, company: "Pacific Northwest HVAC",    contact: "Trevor Nash",     email: "tnash@pacnwhvac.com",      phone: "(206) 555-1319", city: "Seattle, WA",      rep: "Priya Nair",     status: "Converted",      date: "Mar 8,  2026", website: "pacnwhvac.com"    },
-  { id: 14, company: "Desert Air Conditioning",   contact: "Rosa Jimenez",    email: "rosa@desertac.com",        phone: "(520) 555-1425", city: "Tucson, AZ",       rep: "James Okafor",   status: "Contacted",      date: "Mar 15, 2026", website: "desertac.com"     },
-  { id: 15, company: "Allied Security Systems",   contact: "Frank Owens",     email: "fowens@alliedsec.io",      phone: "(404) 555-1511", city: "Atlanta, GA",      rep: "Aisha Thompson", status: "Responded",      date: "Mar 12, 2026", website: "alliedsec.io"     },
-];
-
-const CHART_BARS = [
-  { label: "Mon", admin: 12, rep: 8  },
-  { label: "Tue", admin: 19, rep: 14 },
-  { label: "Wed", admin: 15, rep: 11 },
-  { label: "Thu", admin: 28, rep: 21 },
-  { label: "Fri", admin: 22, rep: 17 },
-  { label: "Sat", admin: 8,  rep: 5  },
-  { label: "Sun", admin: 5,  rep: 3  },
-];
 
 /* ─────────────────────────────── STATUS BADGE ─────────────────────────────── */
 const StatusBadge = ({ status }) => (
@@ -392,34 +365,52 @@ const Sidebar = ({ nav, page, onNavigate, logoText = "LeadFlow", bottomItems }) 
 );
 
 /* ─────────────────────────────── TOP BAR ─────────────────────────────── */
-const TopBar = ({ title, user, onLogout }) => (
-  <header className="h-14 bg-white border-b border-slate-100 flex items-center px-6 gap-4 flex-shrink-0">
-    <div className="flex-1">
-      <h1 className="text-sm font-semibold text-slate-800">{title}</h1>
-    </div>
-    <div className="flex items-center gap-3">
-      {/* Search */}
-      <div className="hidden md:flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 w-48">
-        <Icon name="search" className="w-3.5 h-3.5 text-slate-400" />
-        <input className="bg-transparent text-xs text-slate-600 placeholder:text-slate-400 outline-none w-full" placeholder="Search leads..." readOnly />
+const TopBar = ({ title, user, onLogout }) => {
+  const [showMenu, setShowMenu] = useState(false);
+  const menuRef = useRef(null);
+  useEffect(() => {
+    const handler = (e) => { if (menuRef.current && !menuRef.current.contains(e.target)) setShowMenu(false); };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+  return (
+    <header className="h-14 bg-white border-b border-slate-100 flex items-center px-6 gap-4 flex-shrink-0">
+      <div className="flex-1">
+        <h1 className="text-sm font-semibold text-slate-800">{title}</h1>
       </div>
-      {/* Notifications */}
-      <button className="relative text-slate-500 hover:text-slate-800 transition-colors">
-        <Icon name="bell" className="w-5 h-5" />
-        <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-blue-600 rounded-full" />
-      </button>
-      {/* User */}
-      <button onClick={onLogout} className="flex items-center gap-2 group">
-        <Avatar initials={user.avatar} color={user.color} size="w-8 h-8" text="text-xs" />
-        <div className="hidden md:block text-left">
-          <p className="text-xs font-semibold text-slate-800 leading-none">{user.name}</p>
-          <p className="text-xs text-slate-400 mt-0.5">{user.role}</p>
+      <div className="flex items-center gap-3">
+        {/* Notifications */}
+        <button className="relative text-slate-500 hover:text-slate-800 transition-colors">
+          <Icon name="bell" className="w-5 h-5" />
+          <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-blue-600 rounded-full" />
+        </button>
+        {/* User dropdown */}
+        <div className="relative" ref={menuRef}>
+          <button onClick={() => setShowMenu(p => !p)} className="flex items-center gap-2 group">
+            <Avatar initials={user.avatar} color={user.color} size="w-8 h-8" text="text-xs" />
+            <div className="hidden md:block text-left">
+              <p className="text-xs font-semibold text-slate-800 leading-none">{user.name}</p>
+              <p className="text-xs text-slate-400 mt-0.5">{user.role}</p>
+            </div>
+            <Icon name="chevronRight" className={`w-3.5 h-3.5 text-slate-400 hidden md:block transition-transform ${showMenu ? "-rotate-90" : "rotate-90"}`} />
+          </button>
+          {showMenu && (
+            <div className="absolute right-0 top-full mt-2 w-52 bg-white border border-slate-200 rounded-xl shadow-xl py-1 z-50">
+              <div className="px-4 py-3 border-b border-slate-100">
+                <p className="text-xs font-semibold text-slate-800">{user.name}</p>
+                <p className="text-xs text-slate-400 mt-0.5">{user.role}</p>
+              </div>
+              <button onClick={() => { setShowMenu(false); onLogout(); }}
+                className="w-full text-left px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2 transition-colors">
+                <Icon name="logout" className="w-4 h-4" /> Sign out
+              </button>
+            </div>
+          )}
         </div>
-        <Icon name="chevronRight" className="w-3.5 h-3.5 text-slate-400 group-hover:text-slate-600 rotate-90 hidden md:block" />
-      </button>
-    </div>
-  </header>
-);
+      </div>
+    </header>
+  );
+};
 
 /* ─────────────────────────────── SECTION HEADER ─────────────────────────────── */
 const SectionHeader = ({ title, subtitle, action }) => (
@@ -445,11 +436,24 @@ const AdminDashboard = () => {
   const [openReps, setOpenReps] = useState({});
   const [byRep, setByRep] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [inviteCode, setInviteCode] = useState("");
+  const [inviteCopied, setInviteCopied] = useState(false);
   const toggleRep = (name) => setOpenReps(p => ({ ...p, [name]: !p[name] }));
 
   useEffect(() => {
-    apiFetch("/api/leads/by-rep").then(setByRep).catch(() => {}).finally(() => setLoading(false));
+    Promise.all([
+      apiFetch("/api/leads/by-rep").catch(() => []),
+      apiFetch("/api/org").catch(() => null),
+    ]).then(([reps, org]) => {
+      setByRep(reps || []);
+      if (org?.invite_code) setInviteCode(org.invite_code);
+    }).finally(() => setLoading(false));
   }, []);
+
+  const copyInvite = () => {
+    navigator.clipboard.writeText(inviteCode);
+    setInviteCopied(true); setTimeout(() => setInviteCopied(false), 2000);
+  };
 
   const totalLeads    = byRep.reduce((s, r) => s + r.total, 0);
   const totalConverted = byRep.reduce((s, r) => s + (r["Converted"] || 0), 0);
@@ -464,20 +468,49 @@ const AdminDashboard = () => {
 
   return (
     <div className="p-6 space-y-6">
+
+      {/* Invite banner */}
+      {inviteCode && (
+        <div className="bg-gradient-to-r from-blue-600 to-violet-600 rounded-2xl p-5 flex items-center justify-between gap-4 text-white">
+          <div>
+            <p className="text-sm font-semibold text-blue-100">Invite your team</p>
+            <p className="text-xs text-blue-200 mt-0.5">Share this code with sales reps so they can join your organization</p>
+          </div>
+          <div className="flex items-center gap-3 flex-shrink-0">
+            <span className="font-mono text-xl font-bold tracking-widest bg-white/15 px-4 py-2 rounded-xl">{inviteCode}</span>
+            <button onClick={copyInvite}
+              className={`text-sm font-semibold px-4 py-2 rounded-xl transition-colors ${inviteCopied ? "bg-emerald-400 text-white" : "bg-white text-blue-700 hover:bg-blue-50"}`}>
+              {inviteCopied ? "Copied!" : "Copy code"}
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard label="Total Leads"     value={totalLeads}        change="+89 this week"  icon="list"     iconBg="bg-blue-50 text-blue-600"     positive />
-        <StatCard label="Active Reps"     value={byRep.length}      change="+1 this month"  icon="users"    iconBg="bg-violet-50 text-violet-600"  positive />
-        <StatCard label="Conversion Rate" value={`${convRate}%`}    change="+2.1% pts"      icon="trending" iconBg="bg-emerald-50 text-emerald-600" positive />
-        <StatCard label="Leads This Week" value={totalLeads}        change="+23% vs prior"  icon="search"   iconBg="bg-amber-50 text-amber-600"    positive />
+        <StatCard label="Total Leads"     value={totalLeads}     icon="list"     iconBg="bg-blue-50 text-blue-600"     />
+        <StatCard label="Active Reps"     value={byRep.length}   icon="users"    iconBg="bg-violet-50 text-violet-600"  />
+        <StatCard label="Conversion Rate" value={`${convRate}%`} icon="trending" iconBg="bg-emerald-50 text-emerald-600" />
+        <StatCard label="Converted"       value={totalConverted} icon="check"    iconBg="bg-amber-50 text-amber-600"    />
       </div>
 
       {/* Charts */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <BarChart bars={CHART_BARS} color="bg-blue-500" title="Leads Added Per Day" subtitle="All reps combined — this week" isRep={false} />
         {donutData.length > 0
           ? <DonutChart data={donutData} title="Lead Status Breakdown" subtitle={`Across all ${totalLeads} leads`} />
-          : <DonutChart data={[{label:"No leads",value:1,color:"#e2e8f0"}]} title="Lead Status Breakdown" subtitle="No leads yet" />
+          : <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 flex flex-col items-center justify-center gap-2 min-h-[180px]">
+              <Icon name="list" className="w-8 h-8 text-slate-200" />
+              <p className="text-sm font-medium text-slate-400">No leads yet</p>
+              <p className="text-xs text-slate-300">Leads will appear here once your reps start adding them</p>
+            </div>
+        }
+        {donutData.length > 0
+          ? <DonutChart data={donutData} title="Rep Performance" subtitle={`${byRep.length} active reps`} />
+          : <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 flex flex-col items-center justify-center gap-2 min-h-[180px]">
+              <Icon name="users" className="w-8 h-8 text-slate-200" />
+              <p className="text-sm font-medium text-slate-400">No rep activity yet</p>
+              <p className="text-xs text-slate-300">Invite reps to your team to see performance here</p>
+            </div>
         }
       </div>
 
@@ -576,80 +609,92 @@ const AdminDashboard = () => {
 
 /* ─── Admin Sales Reps ─── */
 const AdminSalesReps = () => {
-  const [reps, setReps]       = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [showAdd, setShowAdd] = useState(false);
-  const [form, setForm]       = useState({ name: "", email: "", password: "" });
-  const [adding, setAdding]   = useState(false);
-  const [addError, setAddError] = useState("");
+  const [reps, setReps]         = useState([]);
+  const [pending, setPending]   = useState([]);
+  const [loading, setLoading]   = useState(true);
+  const [actioning, setActioning] = useState({});
 
   useEffect(() => {
-    apiFetch("/api/reps").then(setReps).catch(() => {}).finally(() => setLoading(false));
+    Promise.all([
+      apiFetch("/api/reps").catch(() => []),
+      apiFetch("/api/org/pending").catch(() => []),
+    ]).then(([r, p]) => { setReps(r); setPending(p); }).finally(() => setLoading(false));
   }, []);
 
-  const addRep = async (e) => {
-    e.preventDefault();
-    setAddError(""); setAdding(true);
+  const action = async (userId, type) => {
+    setActioning(a => ({ ...a, [userId]: type }));
     try {
-      const newRep = await apiFetch("/api/reps", { method: "POST", body: JSON.stringify(form) });
-      setReps(prev => [...prev, { ...newRep, total_leads: 0 }]);
-      setShowAdd(false);
-      setForm({ name: "", email: "", password: "" });
+      await apiFetch(`/api/org/members/${userId}/${type}`, { method: "POST" });
+      setPending(p => p.filter(u => u.id !== userId));
+      if (type === "approve") {
+        const approved = pending.find(u => u.id === userId);
+        if (approved) setReps(r => [...r, { ...approved, total_leads: 0, status: "active" }]);
+      }
     } catch (err) {
-      setAddError(err.message);
+      alert("Failed: " + err.message);
     } finally {
-      setAdding(false);
+      setActioning(a => ({ ...a, [userId]: null }));
     }
   };
 
+  if (loading) return <div className="p-6 text-sm text-slate-400">Loading…</div>;
+
   return (
     <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-xl font-bold text-slate-800">Sales Reps</h2>
-          <p className="text-sm text-slate-500 mt-1">Manage your team of {reps.length} sales representatives</p>
-        </div>
-        <button onClick={() => setShowAdd(true)}
-          className="flex items-center gap-2 bg-blue-600 text-white text-sm font-semibold px-4 py-2 rounded-xl hover:bg-blue-700 transition-colors shadow-sm shadow-blue-200">
-          <Icon name="plus" className="w-4 h-4" /> Add Rep
-        </button>
+      <div>
+        <h2 className="text-xl font-bold text-slate-800">Sales Reps</h2>
+        <p className="text-sm text-slate-500 mt-1">{reps.length} active rep{reps.length !== 1 ? "s" : ""} on your team</p>
       </div>
 
-      {/* Add Rep modal */}
-      {showAdd && (
-        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-sm">
-            <h3 className="font-bold text-slate-800 mb-4">Add Sales Rep</h3>
-            <form onSubmit={addRep} className="space-y-3">
-              <input required value={form.name} onChange={e => setForm(p => ({...p, name: e.target.value}))}
-                placeholder="Full name" className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-blue-400" />
-              <input required type="email" value={form.email} onChange={e => setForm(p => ({...p, email: e.target.value}))}
-                placeholder="Email address" className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-blue-400" />
-              <input required type="password" value={form.password} onChange={e => setForm(p => ({...p, password: e.target.value}))}
-                placeholder="Password" className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-blue-400" />
-              {addError && <p className="text-xs text-red-500">{addError}</p>}
-              <div className="flex gap-2 pt-1">
-                <button type="button" onClick={() => setShowAdd(false)}
-                  className="flex-1 border border-slate-200 text-slate-600 text-sm font-medium py-2 rounded-xl hover:bg-slate-50">Cancel</button>
-                <button type="submit" disabled={adding}
-                  className="flex-1 bg-blue-600 text-white text-sm font-semibold py-2 rounded-xl hover:bg-blue-700 disabled:opacity-60">
-                  {adding ? "Adding…" : "Add Rep"}
-                </button>
+      {/* Pending approvals */}
+      {pending.length > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl overflow-hidden">
+          <div className="px-5 py-4 border-b border-amber-200 flex items-center gap-2">
+            <div className="w-2 h-2 bg-amber-500 rounded-full animate-pulse" />
+            <h3 className="font-semibold text-amber-800 text-sm">Pending Approval ({pending.length})</h3>
+            <p className="text-xs text-amber-600 ml-1">These reps signed up with your invite code and are waiting for your approval</p>
+          </div>
+          <div className="divide-y divide-amber-100">
+            {pending.map(u => (
+              <div key={u.id} className="px-5 py-4 flex items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <Avatar initials={repInitials(u.name)} color="bg-amber-500" size="w-9 h-9" text="text-xs" />
+                  <div>
+                    <p className="text-sm font-semibold text-slate-800">{u.name}</p>
+                    <p className="text-xs text-slate-500">{u.email}</p>
+                    <p className="text-xs text-amber-600 mt-0.5">Requested {new Date(u.created_at).toLocaleDateString("en-US", { month:"short", day:"numeric", year:"numeric" })}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <button onClick={() => action(u.id, "approve")} disabled={!!actioning[u.id]}
+                    className="text-xs font-semibold px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl transition-colors disabled:opacity-60">
+                    {actioning[u.id] === "approve" ? "Approving…" : "Approve"}
+                  </button>
+                  <button onClick={() => action(u.id, "reject")} disabled={!!actioning[u.id]}
+                    className="text-xs font-semibold px-4 py-2 bg-white hover:bg-red-50 text-red-600 border border-red-200 rounded-xl transition-colors disabled:opacity-60">
+                    {actioning[u.id] === "reject" ? "Rejecting…" : "Reject"}
+                  </button>
+                </div>
               </div>
-            </form>
+            ))}
           </div>
         </div>
       )}
 
-      {loading ? (
-        <div className="text-center text-sm text-slate-400 py-12">Loading…</div>
+      {/* Active reps */}
+      {reps.length === 0 ? (
+        <div className="bg-white rounded-2xl border border-slate-100 p-10 text-center">
+          <Icon name="users" className="w-10 h-10 text-slate-200 mx-auto mb-3" />
+          <p className="text-sm font-medium text-slate-400">No active reps yet</p>
+          <p className="text-xs text-slate-300 mt-1">Share your invite code with reps — they'll appear here once you approve them</p>
+        </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {reps.map((rep, i) => {
             const converted = rep["Converted"] || 0;
             const conv = rep.total_leads ? Math.round((converted / rep.total_leads) * 100) : 0;
             return (
-              <div key={rep.id} className="bg-white rounded-2xl shadow-sm border border-slate-100 p-5 hover:shadow-md hover:border-slate-200 transition-all cursor-pointer">
+              <div key={rep.id} className="bg-white rounded-2xl shadow-sm border border-slate-100 p-5 hover:shadow-md hover:border-slate-200 transition-all">
                 <div className="flex items-start justify-between mb-4">
                   <div className="flex items-center gap-3">
                     <Avatar initials={repInitials(rep.name)} color={repColor(i)} size="w-10 h-10" text="text-sm" />
@@ -661,7 +706,7 @@ const AdminSalesReps = () => {
                   <span className="text-xs bg-emerald-50 text-emerald-600 font-semibold px-2 py-0.5 rounded-full">Active</span>
                 </div>
                 <div className="grid grid-cols-3 gap-2 mb-4">
-                  <div className="text-center"><p className="text-lg font-bold text-slate-800">{rep.total_leads}</p><p className="text-xs text-slate-400">Leads</p></div>
+                  <div className="text-center"><p className="text-lg font-bold text-slate-800">{rep.total_leads || 0}</p><p className="text-xs text-slate-400">Leads</p></div>
                   <div className="text-center border-x border-slate-100"><p className="text-lg font-bold text-emerald-600">{converted}</p><p className="text-xs text-slate-400">Won</p></div>
                   <div className="text-center"><p className="text-lg font-bold text-blue-600">{conv}%</p><p className="text-xs text-slate-400">Rate</p></div>
                 </div>
@@ -770,81 +815,163 @@ const AdminAllLeads = () => {
 };
 
 /* ─── Admin Settings ─── */
-const AdminSettings = () => (
-  <div className="p-6 max-w-2xl space-y-6">
-    <div>
-      <h2 className="text-xl font-bold text-slate-800">Settings</h2>
-      <p className="text-sm text-slate-500 mt-1">Manage your workspace configuration</p>
-    </div>
-    {[
-      {
-        title: "Workspace",
-        fields: [
-          { label: "Company Name",  value: "Acme Corp",            type: "text" },
-          { label: "Workspace URL", value: "acme.leadflow.io",     type: "text" },
-          { label: "Timezone",      value: "America/Chicago (CST)", type: "select" },
-        ]
-      },
-      {
-        title: "Notifications",
-        fields: [
-          { label: "New Lead Assigned",    value: true, type: "toggle" },
-          { label: "Lead Status Changed",  value: true, type: "toggle" },
-          { label: "Weekly Digest Email",  value: false, type: "toggle" },
-        ]
-      },
-      {
-        title: "Integrations",
-        fields: [
-          { label: "Google Sheets",  value: "Connected", type: "badge", ok: true },
-          { label: "Slack",          value: "Not connected", type: "badge", ok: false },
-          { label: "HubSpot",        value: "Not connected", type: "badge", ok: false },
-        ]
-      }
-    ].map(section => (
-      <div key={section.title} className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+const AdminSettings = () => {
+  const [org, setOrg]             = useState(null);
+  const [loading, setLoading]     = useState(true);
+  const [saving, setSaving]       = useState(false);
+  const [saveMsg, setSaveMsg]     = useState("");
+  const [orgName, setOrgName]     = useState("");
+  const [apiKey, setApiKey]       = useState("");
+  const [searchCx, setSearchCx]  = useState("");
+  const [showKey, setShowKey]     = useState(false);
+  const [copied, setCopied]       = useState(false);
+
+  useEffect(() => {
+    apiFetch("/api/org")
+      .then(data => {
+        setOrg(data);
+        if (data) {
+          setOrgName(data.name || "");
+          setApiKey(data.google_api_key || "");
+          setSearchCx(data.google_search_cx || "");
+        }
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  const save = async () => {
+    setSaving(true); setSaveMsg("");
+    try {
+      const updated = await apiFetch("/api/org", {
+        method: "PUT",
+        body: JSON.stringify({ name: orgName, google_api_key: apiKey, google_search_cx: searchCx }),
+      });
+      setOrg(updated);
+      setSaveMsg("Saved!");
+    } catch (err) {
+      setSaveMsg("Error: " + err.message);
+    } finally { setSaving(false); setTimeout(() => setSaveMsg(""), 3000); }
+  };
+
+  const copyInvite = () => {
+    navigator.clipboard.writeText(org?.invite_code || "");
+    setCopied(true); setTimeout(() => setCopied(false), 2000);
+  };
+
+  if (loading) return <div className="p-6 text-sm text-slate-400">Loading settings…</div>;
+
+  const usedPct = org ? Math.round((org.scrapes_used_this_month / (org.monthly_scrape_limit || 100)) * 100) : 0;
+
+  return (
+    <div className="p-6 max-w-2xl space-y-6">
+      <div>
+        <h2 className="text-xl font-bold text-slate-800">Organization Settings</h2>
+        <p className="text-sm text-slate-500 mt-1">Manage your team and API configuration</p>
+      </div>
+
+      {/* Org info */}
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
         <div className="px-5 py-4 border-b border-slate-100">
-          <h3 className="font-semibold text-slate-800 text-sm">{section.title}</h3>
+          <h3 className="font-semibold text-slate-800 text-sm">Organization</h3>
         </div>
         <div className="divide-y divide-slate-50">
-          {section.fields.map(f => (
-            <div key={f.label} className="px-5 py-4 flex items-center justify-between">
-              <label className="text-sm text-slate-700 font-medium">{f.label}</label>
-              {f.type === "text" && (
-                <input defaultValue={f.value} className="text-sm text-slate-600 border border-slate-200 rounded-lg px-3 py-1.5 bg-slate-50 w-56 outline-none focus:border-blue-400" />
-              )}
-              {f.type === "select" && (
-                <select className="text-sm text-slate-600 border border-slate-200 rounded-lg px-3 py-1.5 bg-slate-50 w-56 outline-none">
-                  <option>{f.value}</option>
-                </select>
-              )}
-              {f.type === "toggle" && (
-                <div className={`w-10 h-6 rounded-full flex items-center px-1 cursor-pointer transition-colors ${f.value ? "bg-blue-600" : "bg-slate-200"}`}>
-                  <div className={`w-4 h-4 bg-white rounded-full shadow transition-transform ${f.value ? "translate-x-4" : "translate-x-0"}`} />
-                </div>
-              )}
-              {f.type === "badge" && (
-                <div className="flex items-center gap-2">
-                  <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${f.ok ? "bg-emerald-50 text-emerald-600" : "bg-slate-100 text-slate-500"}`}>{f.value}</span>
-                  {!f.ok && <button className="text-xs text-blue-600 font-medium hover:underline">Connect</button>}
-                </div>
-              )}
+          <div className="px-5 py-4 flex items-center justify-between">
+            <label className="text-sm text-slate-700 font-medium">Team Name</label>
+            <input value={orgName} onChange={e => setOrgName(e.target.value)}
+              className="text-sm text-slate-700 border border-slate-200 rounded-lg px-3 py-1.5 w-56 outline-none focus:border-blue-400" />
+          </div>
+          <div className="px-5 py-4">
+            <div className="flex items-start justify-between mb-2">
+              <div>
+                <p className="text-sm text-slate-700 font-medium">Invite Code</p>
+                <p className="text-xs text-slate-400 mt-0.5">Share with reps so they can join your team. Regenerate to invalidate the old one.</p>
+              </div>
             </div>
-          ))}
+            <div className="flex items-center gap-2 mt-2">
+              <span className="font-mono text-sm font-bold text-slate-800 bg-slate-100 px-3 py-2 rounded-lg tracking-widest flex-1 text-center">{org?.invite_code || "—"}</span>
+              <button onClick={copyInvite}
+                className={`text-xs font-semibold px-3 py-2 rounded-lg transition-colors flex-shrink-0 ${copied ? "bg-emerald-100 text-emerald-600" : "bg-blue-50 text-blue-600 hover:bg-blue-100"}`}>
+                {copied ? "Copied!" : "Copy"}
+              </button>
+              <button onClick={async () => {
+                  if (!confirm("This will invalidate the current invite code. Continue?")) return;
+                  try {
+                    const res = await apiFetch("/api/org/new-invite", { method: "POST" });
+                    setOrg(o => ({ ...o, invite_code: res.invite_code }));
+                  } catch (e) { alert("Failed: " + e.message); }
+                }}
+                className="text-xs font-semibold px-3 py-2 rounded-lg bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors flex-shrink-0">
+                Regenerate
+              </button>
+            </div>
+          </div>
+          <div className="px-5 py-4 flex items-center justify-between">
+            <p className="text-sm text-slate-700 font-medium">Plan</p>
+            <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-blue-50 text-blue-600 capitalize">{org?.subscription_tier || "free"}</span>
+          </div>
         </div>
       </div>
-    ))}
-    <div className="flex gap-3">
-      <button className="bg-blue-600 text-white text-sm font-semibold px-5 py-2 rounded-xl hover:bg-blue-700 transition-colors">Save Changes</button>
-      <button className="text-slate-600 text-sm font-medium px-5 py-2 rounded-xl border border-slate-200 hover:bg-slate-50">Cancel</button>
+
+      {/* Usage */}
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+        <div className="px-5 py-4 border-b border-slate-100">
+          <h3 className="font-semibold text-slate-800 text-sm">Monthly Scrape Usage</h3>
+        </div>
+        <div className="px-5 py-5 space-y-3">
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-slate-600">{org?.scrapes_used_this_month || 0} of {org?.monthly_scrape_limit || 100} scrapes used</span>
+            <span className={`font-semibold ${usedPct >= 90 ? "text-red-500" : usedPct >= 70 ? "text-amber-500" : "text-emerald-600"}`}>{usedPct}%</span>
+          </div>
+          <div className="w-full bg-slate-100 rounded-full h-2">
+            <div className={`h-2 rounded-full transition-all ${usedPct >= 90 ? "bg-red-500" : usedPct >= 70 ? "bg-amber-500" : "bg-emerald-500"}`}
+              style={{ width: `${Math.min(usedPct, 100)}%` }} />
+          </div>
+        </div>
+      </div>
+
+      {/* Google API */}
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+        <div className="px-5 py-4 border-b border-slate-100">
+          <h3 className="font-semibold text-slate-800 text-sm">Google Search API</h3>
+        </div>
+        <div className="divide-y divide-slate-50">
+          <div className="px-5 py-4">
+            <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">API Key</label>
+            <div className="flex gap-2">
+              <input type={showKey ? "text" : "password"} value={apiKey} onChange={e => setApiKey(e.target.value)}
+                className="flex-1 text-sm text-slate-700 border border-slate-200 rounded-lg px-3 py-1.5 outline-none focus:border-blue-400 font-mono"
+                placeholder="AIza…" />
+              <button type="button" onClick={() => setShowKey(p => !p)}
+                className="text-xs text-slate-500 hover:text-slate-700 px-2 border border-slate-200 rounded-lg">
+                {showKey ? "Hide" : "Show"}
+              </button>
+            </div>
+          </div>
+          <div className="px-5 py-4">
+            <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Search Engine CX</label>
+            <input type="text" value={searchCx} onChange={e => setSearchCx(e.target.value)}
+              className="w-full text-sm text-slate-700 border border-slate-200 rounded-lg px-3 py-1.5 outline-none focus:border-blue-400 font-mono"
+              placeholder="e3ab8508bf61d42f7" />
+          </div>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-3">
+        <button onClick={save} disabled={saving}
+          className="bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white text-sm font-semibold px-5 py-2 rounded-xl transition-colors">
+          {saving ? "Saving…" : "Save Changes"}
+        </button>
+        {saveMsg && <span className={`text-sm font-medium ${saveMsg.startsWith("Error") ? "text-red-500" : "text-emerald-600"}`}>{saveMsg}</span>}
+      </div>
     </div>
-  </div>
-);
+  );
+};
 
 /* ═══════════════════════════════════════════════════════════════════════════
    REP PAGES
 ═══════════════════════════════════════════════════════════════════════════ */
-const MY_LEADS = [
+const _DELETED_MY_LEADS = [
   {
     id: 101, company: "Frost HVAC Services", contact: "Mike Frost", email: "mike@frosthvac.com",
     phone: "713-555-0192", city: "Houston, TX", rep: "Sarah Chen", status: "Contacted", date: "2026-03-14",
@@ -932,10 +1059,11 @@ const RepDashboard = ({ user = {} }) => {
   const [myLeads, setMyLeads] = useState([]);
   const [stats, setStats]     = useState({ total: 0 });
   const [loading, setLoading] = useState(true);
+  const [orgName, setOrgName] = useState("");
 
   useEffect(() => {
-    Promise.all([apiFetch("/api/leads"), apiFetch("/api/leads/stats")])
-      .then(([leads, s]) => { setMyLeads(leads.map(normLead)); setStats(s); })
+    Promise.all([apiFetch("/api/leads"), apiFetch("/api/leads/stats"), apiFetch("/api/org").catch(() => null)])
+      .then(([leads, s, org]) => { setMyLeads(leads.map(normLead)); setStats(s); if (org) setOrgName(org.name); })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
@@ -958,6 +1086,7 @@ const RepDashboard = ({ user = {} }) => {
         <div>
           <p className="text-blue-100 text-sm font-medium">Good morning,</p>
           <p className="text-2xl font-bold mt-0.5">{user.name || "Sales Rep"}</p>
+          {orgName && <p className="text-blue-300 text-xs mt-0.5 font-medium">{orgName}</p>}
           <p className="text-blue-200 text-sm mt-1">You have <span className="text-white font-semibold">{stats.total} leads</span> assigned to you.</p>
         </div>
         <div className="hidden md:block opacity-20">
@@ -967,18 +1096,21 @@ const RepDashboard = ({ user = {} }) => {
 
       {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard label="My Leads"      value={stats.total}               change="+3 this week"  icon="list"     iconBg="bg-blue-50 text-blue-600"     positive />
-        <StatCard label="Contacted"     value={stats["Contacted"]||0}     change="+2 this week"  icon="mail"     iconBg="bg-violet-50 text-violet-600"  positive />
-        <StatCard label="Converted"     value={stats["Converted"]||0}     change="+1 this week"  icon="check"    iconBg="bg-emerald-50 text-emerald-600" positive />
-        <StatCard label="Response Rate" value={`${respRate}%`}            change="+5% pts"       icon="trending" iconBg="bg-amber-50 text-amber-600"    positive />
+        <StatCard label="My Leads"      value={stats.total}           icon="list"     iconBg="bg-blue-50 text-blue-600"     />
+        <StatCard label="Contacted"     value={stats["Contacted"]||0} icon="mail"     iconBg="bg-violet-50 text-violet-600"  />
+        <StatCard label="Converted"     value={stats["Converted"]||0} icon="check"    iconBg="bg-emerald-50 text-emerald-600" />
+        <StatCard label="Response Rate" value={`${respRate}%`}        icon="trending" iconBg="bg-amber-50 text-amber-600"    />
       </div>
 
       {/* Charts */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <BarChart bars={CHART_BARS} color="bg-violet-500" title="My Leads Per Day" subtitle="Your activity this week" isRep={true} />
         {donutData.length > 0
           ? <DonutChart data={donutData} title="My Lead Status" subtitle={`Across your ${stats.total} leads`} />
-          : <DonutChart data={[{label:"No leads",value:1,color:"#e2e8f0"}]} title="My Lead Status" subtitle="No leads yet" />
+          : <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 flex flex-col items-center justify-center gap-2 min-h-[180px]">
+              <Icon name="search" className="w-8 h-8 text-slate-200" />
+              <p className="text-sm font-medium text-slate-400">No leads yet</p>
+              <p className="text-xs text-slate-300">Use Search Leads to find and save your first leads</p>
+            </div>
         }
       </div>
 
@@ -1316,6 +1448,14 @@ const RepSearchLeads = ({ user = {} }) => {
   const [savedLeads, setSavedLeads] = useState(new Set());
   const [selectedLeads, setSelectedLeads] = useState(new Set());
   const [scrapeError, setScrapeError] = useState("");
+  const [orgChecked, setOrgChecked] = useState(false);
+  const [hasOrg, setHasOrg] = useState(false);
+
+  useEffect(() => {
+    apiFetch("/api/org")
+      .then(org => { setHasOrg(!!org); setOrgChecked(true); })
+      .catch(() => { setHasOrg(false); setOrgChecked(true); });
+  }, []);
 
   // Section 1
   const [industryInput, setIndustryInput] = useState("");
@@ -1368,6 +1508,19 @@ const RepSearchLeads = ({ user = {} }) => {
   ];
 
   const [results, setResults] = useState([]);
+
+  if (!orgChecked) return <div className="p-6 text-sm text-slate-400">Loading…</div>;
+  if (!hasOrg) return (
+    <div className="p-6 max-w-lg">
+      <div className="bg-amber-50 border border-amber-200 rounded-2xl p-6 text-center">
+        <div className="w-12 h-12 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-3">
+          <Icon name="building" className="w-6 h-6 text-amber-600" />
+        </div>
+        <h3 className="font-semibold text-slate-800 mb-1">No organization linked</h3>
+        <p className="text-sm text-slate-500">You need to be part of an organization to search for leads. Ask your admin to share an invite code.</p>
+      </div>
+    </div>
+  );
 
   const canSearch = industryInput.trim() && location.trim();
 
@@ -1859,115 +2012,466 @@ const RepSearchLeads = ({ user = {} }) => {
 /* ═══════════════════════════════════════════════════════════════════════════
    LOGIN PAGE
 ═══════════════════════════════════════════════════════════════════════════ */
+const LoginWrap = ({ children }) => (
+  <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
+    <div className="absolute inset-0 overflow-hidden pointer-events-none">
+      <div className="absolute -top-40 -right-40 w-96 h-96 bg-blue-600 opacity-10 rounded-full blur-3xl" />
+      <div className="absolute -bottom-40 -left-40 w-96 h-96 bg-violet-600 opacity-10 rounded-full blur-3xl" />
+    </div>
+    <div className="w-full max-w-sm relative">
+      <div className="text-center mb-8">
+        <div className="w-12 h-12 bg-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-blue-900/50">
+          <Icon name="trending" className="w-6 h-6 text-white" />
+        </div>
+        <h1 className="text-2xl font-bold text-white">LeadFlow</h1>
+        <p className="text-slate-400 text-sm mt-1">Sales Intelligence Platform</p>
+      </div>
+      {children}
+      <p className="text-center text-xs text-slate-600 mt-6">© 2026 LeadFlow, Inc. All rights reserved.</p>
+    </div>
+  </div>
+);
+
+const LoginErrBox = ({ msg }) => msg ? (
+  <div className="bg-red-900/40 border border-red-700 text-red-300 text-xs px-3 py-2 rounded-lg">{msg}</div>
+) : null;
+
 const Login = ({ onLogin }) => {
-  const [email, setEmail]       = useState("admin@leadflow.io");
-  const [password, setPassword] = useState("admin123");
-  const [loading, setLoading]   = useState(false);
-  const [error, setError]       = useState("");
-  const [serverOk, setServerOk] = useState(null); // null=checking, true=up, false=down
+  const [resetToken] = useState(() => {
+    const hash = new URLSearchParams(window.location.hash.slice(1));
+    return hash.get("type") === "recovery" ? hash.get("access_token") : null;
+  });
 
-  useEffect(() => {
-    fetch(`${API_BASE}/api/auth/login`, { method: "OPTIONS" })
-      .then(() => setServerOk(true))
-      .catch(() => setServerOk(false));
-  }, []);
+  // view: 'role' | 'login' | 'signup' | 'signup-sent' | 'forgot' | 'forgot-sent' | 'reset' | 'reset-done'
+  const [view, setView] = useState(resetToken ? "reset" : "role");
+  const [loginRole, setLoginRole] = useState("admin"); // "admin" | "rep"
 
-  const submit = async (e) => {
+  const [error, setError] = useState("");
+
+  // Login
+  const [email, setEmail]             = useState("");
+  const [password, setPassword]       = useState("");
+  const [showPw, setShowPw]           = useState(false);
+  const [loginLoading, setLoginLoading] = useState(false);
+
+  // Sign up
+  const [suName, setSuName]           = useState("");
+  const [suEmail, setSuEmail]         = useState("");
+  const [suPw, setSuPw]               = useState("");
+  const [suPw2, setSuPw2]             = useState("");
+  const [suShowPw, setSuShowPw]       = useState(false);
+  const [signupLoading, setSignupLoading] = useState(false);
+  const [suOrgMode, setSuOrgMode]     = useState("join");   // "create" | "join"
+  const [suOrgName, setSuOrgName]     = useState("");
+  const [suInviteCode, setSuInviteCode] = useState("");
+
+  // Forgot
+  const [forgotEmail, setForgotEmail]     = useState("");
+  const [forgotLoading, setForgotLoading] = useState(false);
+
+  // Reset
+  const [newPw, setNewPw]             = useState("");
+  const [confirmPw, setConfirmPw]     = useState("");
+  const [resetLoading, setResetLoading] = useState(false);
+
+  const goTo = (v) => { setError(""); setView(v); };
+
+  const handleGoogle = async () => {
+    try {
+      const data = await apiFetch("/api/auth/oauth/google-url");
+      window.location.href = data.url;
+    } catch { setError("Could not start Google sign-in"); }
+  };
+
+  /* ── Login ── */
+  const handleLogin = async (e) => {
     e.preventDefault();
     setError("");
-    setLoading(true);
+    setLoginLoading(true);
     try {
       const data = await apiFetch("/api/auth/login", {
-        method: "POST",
-        body: JSON.stringify({ email, password }),
+        method: "POST", body: JSON.stringify({ email, password }),
       });
       localStorage.setItem("lf_token", data.token);
       localStorage.setItem("lf_user", JSON.stringify(data.user));
       onLogin(data.user);
     } catch (err) {
       const msg = err.message || "Login failed";
-      setError(msg === "Failed to fetch"
-        ? "Cannot reach the server. Run: python3 app.py"
-        : msg);
-    } finally {
-      setLoading(false);
-    }
+      setError(
+        msg === "Failed to fetch"    ? "Cannot reach server — run: python3 app.py" :
+        msg === "PENDING_APPROVAL"   ? "Your account is pending admin approval. You'll be notified once approved." :
+        msg === "REJECTED"           ? "Your join request was declined. Contact the admin for more information." :
+        msg.includes("not confirmed")? "Please confirm your email before signing in." :
+        msg
+      );
+    } finally { setLoginLoading(false); }
   };
 
-  return (
-    <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute -top-40 -right-40 w-96 h-96 bg-blue-600 opacity-10 rounded-full blur-3xl" />
-        <div className="absolute -bottom-40 -left-40 w-96 h-96 bg-violet-600 opacity-10 rounded-full blur-3xl" />
-      </div>
+  /* ── Sign up ── */
+  const handleSignup = async (e) => {
+    e.preventDefault();
+    if (suPw !== suPw2) { setError("Passwords don't match"); return; }
+    if (suPw.length < 8) { setError("Password must be at least 8 characters"); return; }
+    setError("");
+    setSignupLoading(true);
+    try {
+      await apiFetch("/api/auth/register", {
+        method: "POST", body: JSON.stringify({
+          name: suName, email: suEmail, password: suPw,
+          ...(suOrgMode === "create" ? { org_name: suOrgName } : { invite_code: suInviteCode }),
+        }),
+      });
+      goTo("signup-sent");
+    } catch (err) {
+      setError(err.message || "Sign up failed");
+    } finally { setSignupLoading(false); }
+  };
 
-      <div className="w-full max-w-sm relative">
-        <div className="text-center mb-8">
-          <div className="w-12 h-12 bg-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-blue-900/50">
-            <Icon name="trending" className="w-6 h-6 text-white" />
-          </div>
-          <h1 className="text-2xl font-bold text-white">LeadFlow</h1>
-          <p className="text-slate-400 text-sm mt-1">Sales Intelligence Platform</p>
-        </div>
+  /* ── Forgot ── */
+  const handleForgot = async (e) => {
+    e.preventDefault();
+    setForgotLoading(true);
+    setError("");
+    try {
+      await apiFetch("/api/auth/forgot-password", {
+        method: "POST", body: JSON.stringify({ email: forgotEmail }),
+      });
+      goTo("forgot-sent");
+    } catch (err) {
+      setError(err.message || "Failed to send reset email");
+    } finally { setForgotLoading(false); }
+  };
 
-        <div className="bg-slate-800 border border-slate-700 rounded-2xl p-7 shadow-2xl">
-          <div className="flex items-center gap-2 mb-4">
-            <div className={`w-2 h-2 rounded-full flex-shrink-0 ${serverOk === null ? "bg-slate-500 animate-pulse" : serverOk ? "bg-emerald-400" : "bg-red-500"}`} />
-            <span className="text-xs text-slate-400">
-              {serverOk === null ? "Checking server…" : serverOk ? "Server online" : "Server offline — run: python3 app.py"}
-            </span>
-          </div>
-          <h2 className="text-lg font-bold text-white mb-1">Welcome back</h2>
-          <p className="text-slate-400 text-sm mb-6">Sign in to your account to continue</p>
+  /* ── Reset ── */
+  const handleReset = async (e) => {
+    e.preventDefault();
+    if (newPw !== confirmPw) { setError("Passwords don't match"); return; }
+    if (newPw.length < 8)    { setError("Password must be at least 8 characters"); return; }
+    setError("");
+    setResetLoading(true);
+    try {
+      await apiFetch("/api/auth/reset-password", {
+        method: "POST", body: JSON.stringify({ access_token: resetToken, new_password: newPw }),
+      });
+      window.history.replaceState(null, "", window.location.pathname);
+      goTo("reset-done");
+    } catch (err) {
+      setError(err.message || "Failed to reset password");
+    } finally { setResetLoading(false); }
+  };
 
-          <form onSubmit={submit} className="space-y-4">
-            <div>
-              <label className="block text-xs font-semibold text-slate-400 mb-1.5 uppercase tracking-wider">Email</label>
-              <input
-                type="email" value={email} onChange={e => setEmail(e.target.value)} required
-                className="w-full bg-slate-900 border border-slate-700 text-white placeholder:text-slate-600 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-blue-500 transition-colors"
-                placeholder="you@company.com"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-slate-400 mb-1.5 uppercase tracking-wider">Password</label>
-              <input
-                type="password" value={password} onChange={e => setPassword(e.target.value)} required
-                className="w-full bg-slate-900 border border-slate-700 text-white placeholder:text-slate-600 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-blue-500 transition-colors"
-                placeholder="••••••••"
-              />
-            </div>
+  const GoogleBtn = () => (
+    <button type="button" onClick={handleGoogle}
+      className="w-full flex items-center justify-center gap-3 bg-white hover:bg-gray-50 text-gray-700 font-medium text-sm py-2.5 rounded-xl border border-gray-200 transition-colors shadow-sm">
+      <svg className="w-4 h-4" viewBox="0 0 24 24">
+        <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+        <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+        <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+        <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+      </svg>
+      Continue with Google
+    </button>
+  );
 
-            {error && (
-              <div className="bg-red-900/40 border border-red-700 text-red-300 text-xs px-3 py-2 rounded-lg">{error}</div>
-            )}
-
-            <button
-              type="submit" disabled={loading}
-              className="w-full bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white font-semibold text-sm py-2.5 rounded-xl transition-colors shadow-lg shadow-blue-900/30"
-            >
-              {loading ? "Signing in…" : "Sign in"}
-            </button>
-          </form>
-
-          <div className="mt-4 pt-4 border-t border-slate-700">
-            <p className="text-xs text-slate-500 text-center mb-2">Quick access:</p>
-            <div className="flex gap-2">
-              <button onClick={() => { setEmail("admin@leadflow.io"); setPassword("admin123"); }}
-                className="flex-1 text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 py-1.5 rounded-lg transition-colors">
-                Admin
-              </button>
-              <button onClick={() => { setEmail("sarah@leadflow.io"); setPassword("rep123"); }}
-                className="flex-1 text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 py-1.5 rounded-lg transition-colors">
-                Sales Rep
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <p className="text-center text-xs text-slate-600 mt-6">© 2026 LeadFlow, Inc. All rights reserved.</p>
-      </div>
+  const PwInput = ({ value, onChange, show, onToggle, placeholder = "Min. 8 characters" }) => (
+    <div className="relative">
+      <input type={show ? "text" : "password"} value={value} onChange={onChange} required minLength={8}
+        className="w-full bg-slate-900 border border-slate-700 text-white placeholder:text-slate-600 rounded-xl px-4 py-2.5 pr-10 text-sm outline-none focus:border-blue-500 transition-colors"
+        placeholder={placeholder} />
+      <button type="button" onClick={onToggle}
+        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors">
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+          {show
+            ? <path strokeLinecap="round" strokeLinejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 4.411m0 0L21 21" />
+            : <><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></>
+          }
+        </svg>
+      </button>
     </div>
+  );
+
+  /* ── Sign-up sent ── */
+  if (view === "signup-sent") return (
+    <LoginWrap>
+      <div className="bg-slate-800 border border-slate-700 rounded-2xl p-7 shadow-2xl text-center">
+        <div className="w-12 h-12 bg-emerald-600/20 rounded-full flex items-center justify-center mx-auto mb-4">
+          <Icon name="mail" className="w-6 h-6 text-emerald-400" />
+        </div>
+        <h2 className="text-lg font-bold text-white mb-2">{suOrgMode === "join" ? "Request submitted!" : "Confirm your email"}</h2>
+        <p className="text-slate-400 text-sm mb-6">
+          {suOrgMode === "join"
+            ? <>Your request to join the team has been sent to <span className="text-white font-medium">{suEmail}</span>. The admin will review and approve your account — you'll be able to sign in once approved.</>
+            : <>We sent a confirmation link to <span className="text-white font-medium">{suEmail}</span>.<br/>Click it to activate your account.</>
+          }
+        </p>
+        <button onClick={() => goTo("login")}
+          className="w-full bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm font-medium py-2.5 rounded-xl transition-colors">
+          Back to sign in
+        </button>
+      </div>
+    </LoginWrap>
+  );
+
+  /* ── Forgot-sent ── */
+  if (view === "forgot-sent") return (
+    <LoginWrap>
+      <div className="bg-slate-800 border border-slate-700 rounded-2xl p-7 shadow-2xl text-center">
+        <div className="w-12 h-12 bg-emerald-600/20 rounded-full flex items-center justify-center mx-auto mb-4">
+          <Icon name="mail" className="w-6 h-6 text-emerald-400" />
+        </div>
+        <h2 className="text-lg font-bold text-white mb-2">Check your email</h2>
+        <p className="text-slate-400 text-sm mb-6">
+          A password reset link was sent to <span className="text-white font-medium">{forgotEmail}</span>
+        </p>
+        <button onClick={() => goTo("login")}
+          className="w-full bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm font-medium py-2.5 rounded-xl transition-colors">
+          Back to sign in
+        </button>
+      </div>
+    </LoginWrap>
+  );
+
+  /* ── Forgot form ── */
+  if (view === "forgot") return (
+    <LoginWrap>
+      <div className="bg-slate-800 border border-slate-700 rounded-2xl p-7 shadow-2xl">
+        <button onClick={() => goTo("login")} className="flex items-center gap-1 text-slate-400 hover:text-white text-xs mb-5 transition-colors">
+          ← Back to sign in
+        </button>
+        <h2 className="text-lg font-bold text-white mb-1">Reset your password</h2>
+        <p className="text-slate-400 text-sm mb-6">Enter your email and we'll send a reset link</p>
+        <form onSubmit={handleForgot} className="space-y-4">
+          <div>
+            <label className="block text-xs font-semibold text-slate-400 mb-1.5 uppercase tracking-wider">Email</label>
+            <input type="email" value={forgotEmail} onChange={e => setForgotEmail(e.target.value)} required autoFocus
+              className="w-full bg-slate-900 border border-slate-700 text-white placeholder:text-slate-600 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-blue-500 transition-colors"
+              placeholder="you@company.com" />
+          </div>
+          <LoginErrBox msg={error} />
+          <button type="submit" disabled={forgotLoading}
+            className="w-full bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white font-semibold text-sm py-2.5 rounded-xl transition-colors shadow-lg shadow-blue-900/30">
+            {forgotLoading ? "Sending…" : "Send reset link"}
+          </button>
+        </form>
+      </div>
+    </LoginWrap>
+  );
+
+  /* ── Reset form ── */
+  if (view === "reset") return (
+    <LoginWrap>
+      <div className="bg-slate-800 border border-slate-700 rounded-2xl p-7 shadow-2xl">
+        <h2 className="text-lg font-bold text-white mb-1">Set new password</h2>
+        <p className="text-slate-400 text-sm mb-6">Choose a strong password for your account</p>
+        <form onSubmit={handleReset} className="space-y-4">
+          <div>
+            <label className="block text-xs font-semibold text-slate-400 mb-1.5 uppercase tracking-wider">New Password</label>
+            <PwInput value={newPw} onChange={e => setNewPw(e.target.value)} show={false} onToggle={() => {}} placeholder="Min. 8 characters" />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-400 mb-1.5 uppercase tracking-wider">Confirm Password</label>
+            <input type="password" value={confirmPw} onChange={e => setConfirmPw(e.target.value)} required
+              className="w-full bg-slate-900 border border-slate-700 text-white placeholder:text-slate-600 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-blue-500 transition-colors"
+              placeholder="••••••••" />
+          </div>
+          <LoginErrBox msg={error} />
+          <button type="submit" disabled={resetLoading}
+            className="w-full bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white font-semibold text-sm py-2.5 rounded-xl transition-colors shadow-lg shadow-blue-900/30">
+            {resetLoading ? "Updating…" : "Update password"}
+          </button>
+        </form>
+      </div>
+    </LoginWrap>
+  );
+
+  /* ── Reset done ── */
+  if (view === "reset-done") return (
+    <LoginWrap>
+      <div className="bg-slate-800 border border-slate-700 rounded-2xl p-7 shadow-2xl text-center">
+        <div className="w-12 h-12 bg-emerald-600/20 rounded-full flex items-center justify-center mx-auto mb-4">
+          <Icon name="check" className="w-6 h-6 text-emerald-400" />
+        </div>
+        <h2 className="text-lg font-bold text-white mb-2">Password updated</h2>
+        <p className="text-slate-400 text-sm mb-6">Sign in with your new password below.</p>
+        <button onClick={() => goTo("login")}
+          className="w-full bg-blue-600 hover:bg-blue-500 text-white font-semibold text-sm py-2.5 rounded-xl transition-colors">
+          Sign in
+        </button>
+      </div>
+    </LoginWrap>
+  );
+
+  /* ── Sign up ── */
+  if (view === "signup") return (
+    <LoginWrap>
+      <div className="bg-slate-800 border border-slate-700 rounded-2xl p-7 shadow-2xl">
+        <h2 className="text-lg font-bold text-white mb-1">Create an account</h2>
+        <p className="text-slate-400 text-sm mb-5">Get started with LeadFlow</p>
+
+        <GoogleBtn />
+        <div className="flex items-center gap-3 my-4">
+          <div className="flex-1 h-px bg-slate-700" />
+          <span className="text-xs text-slate-500">or</span>
+          <div className="flex-1 h-px bg-slate-700" />
+        </div>
+
+        {/* Org mode toggle */}
+        <div className="flex rounded-xl overflow-hidden border border-slate-700 mb-4">
+          <button type="button" onClick={() => setSuOrgMode("join")}
+            className={`flex-1 text-xs font-semibold py-2 transition-colors ${suOrgMode === "join" ? "bg-blue-600 text-white" : "bg-slate-900 text-slate-400 hover:text-slate-300"}`}>
+            Join a team
+          </button>
+          <button type="button" onClick={() => setSuOrgMode("create")}
+            className={`flex-1 text-xs font-semibold py-2 transition-colors ${suOrgMode === "create" ? "bg-blue-600 text-white" : "bg-slate-900 text-slate-400 hover:text-slate-300"}`}>
+            Create a team
+          </button>
+        </div>
+
+        <form onSubmit={handleSignup} className="space-y-3">
+          <div>
+            <label className="block text-xs font-semibold text-slate-400 mb-1.5 uppercase tracking-wider">Full Name</label>
+            <input type="text" value={suName} onChange={e => setSuName(e.target.value)} required
+              className="w-full bg-slate-900 border border-slate-700 text-white placeholder:text-slate-600 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-blue-500 transition-colors"
+              placeholder="Jane Smith" />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-400 mb-1.5 uppercase tracking-wider">Email</label>
+            <input type="email" value={suEmail} onChange={e => setSuEmail(e.target.value)} required
+              className="w-full bg-slate-900 border border-slate-700 text-white placeholder:text-slate-600 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-blue-500 transition-colors"
+              placeholder="you@company.com" />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-400 mb-1.5 uppercase tracking-wider">Password</label>
+            <PwInput value={suPw} onChange={e => setSuPw(e.target.value)} show={suShowPw} onToggle={() => setSuShowPw(p => !p)} />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-400 mb-1.5 uppercase tracking-wider">Confirm Password</label>
+            <input type="password" value={suPw2} onChange={e => setSuPw2(e.target.value)} required
+              className="w-full bg-slate-900 border border-slate-700 text-white placeholder:text-slate-600 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-blue-500 transition-colors"
+              placeholder="••••••••" />
+          </div>
+
+          {suOrgMode === "create" ? (
+            <div>
+              <label className="block text-xs font-semibold text-slate-400 mb-1.5 uppercase tracking-wider">Team / Company Name</label>
+              <input type="text" value={suOrgName} onChange={e => setSuOrgName(e.target.value)} required
+                className="w-full bg-slate-900 border border-slate-700 text-white placeholder:text-slate-600 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-blue-500 transition-colors"
+                placeholder="Acme Sales Co." />
+            </div>
+          ) : (
+            <div>
+              <label className="block text-xs font-semibold text-slate-400 mb-1.5 uppercase tracking-wider">Invite Code</label>
+              <input type="text" value={suInviteCode} onChange={e => setSuInviteCode(e.target.value.toUpperCase())} required
+                className="w-full bg-slate-900 border border-slate-700 text-white placeholder:text-slate-600 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-blue-500 transition-colors font-mono tracking-widest"
+                placeholder="A1B2C3D4" maxLength={8} />
+              <p className="text-xs text-slate-500 mt-1">Ask your admin for the invite code.</p>
+            </div>
+          )}
+
+          <LoginErrBox msg={error} />
+          <button type="submit" disabled={signupLoading}
+            className="w-full bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white font-semibold text-sm py-2.5 rounded-xl transition-colors shadow-lg shadow-blue-900/30">
+            {signupLoading ? "Creating account…" : suOrgMode === "create" ? "Create team & account" : "Join team"}
+          </button>
+        </form>
+        <p className="text-center text-xs text-slate-500 mt-4">
+          Already have an account?{" "}
+          <button onClick={() => goTo("login")} className="text-blue-400 hover:text-blue-300 transition-colors">Sign in</button>
+        </p>
+      </div>
+    </LoginWrap>
+  );
+
+  /* ── Role picker (first screen) ── */
+  if (view === "role") return (
+    <LoginWrap>
+      <div className="space-y-3">
+        <p className="text-center text-slate-300 text-base font-semibold mb-2">I am a…</p>
+        <button onClick={() => { setLoginRole("admin"); goTo("login"); }}
+          className="w-full bg-slate-800 border-2 border-blue-600 hover:border-blue-400 rounded-2xl p-6 flex items-center gap-4 transition-all hover:scale-[1.02] active:scale-[0.99]">
+          <div className="w-12 h-12 bg-blue-600 rounded-xl flex items-center justify-center flex-shrink-0">
+            <Icon name="settings" className="w-6 h-6 text-white" />
+          </div>
+          <div className="text-left">
+            <p className="font-bold text-white text-base">Sales Admin</p>
+            <p className="text-xs text-slate-400 mt-0.5">Manage your team, reps, and leads</p>
+          </div>
+          <Icon name="chevronRight" className="w-5 h-5 text-slate-500 ml-auto" />
+        </button>
+        <button onClick={() => { setLoginRole("rep"); goTo("login"); }}
+          className="w-full bg-slate-800 border-2 border-violet-600 hover:border-violet-400 rounded-2xl p-6 flex items-center gap-4 transition-all hover:scale-[1.02] active:scale-[0.99]">
+          <div className="w-12 h-12 bg-violet-600 rounded-xl flex items-center justify-center flex-shrink-0">
+            <Icon name="user" className="w-6 h-6 text-white" />
+          </div>
+          <div className="text-left">
+            <p className="font-bold text-white text-base">Sales Rep</p>
+            <p className="text-xs text-slate-400 mt-0.5">Search leads and manage your pipeline</p>
+          </div>
+          <Icon name="chevronRight" className="w-5 h-5 text-slate-500 ml-auto" />
+        </button>
+        <p className="text-center text-xs text-slate-600 mt-4">
+          New here?{" "}
+          <button onClick={() => goTo("signup")} className="text-blue-400 hover:text-blue-300 transition-colors">Create an account</button>
+        </p>
+      </div>
+    </LoginWrap>
+  );
+
+  /* ── Main login ── */
+  const accentColor = loginRole === "admin" ? "bg-blue-600 hover:bg-blue-500 shadow-blue-900/30" : "bg-violet-600 hover:bg-violet-500 shadow-violet-900/30";
+  return (
+    <LoginWrap>
+      <div className="bg-slate-800 border border-slate-700 rounded-2xl p-7 shadow-2xl">
+        <button onClick={() => goTo("role")} className="flex items-center gap-1 text-slate-400 hover:text-white text-xs mb-5 transition-colors">
+          ← Back
+        </button>
+
+        <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg mb-4 ${loginRole === "admin" ? "bg-blue-900/40 text-blue-300" : "bg-violet-900/40 text-violet-300"}`}>
+          <Icon name={loginRole === "admin" ? "settings" : "user"} className="w-3.5 h-3.5" />
+          <span className="text-xs font-semibold">{loginRole === "admin" ? "Sales Admin" : "Sales Rep"}</span>
+        </div>
+
+        <h2 className="text-lg font-bold text-white mb-1">Welcome back</h2>
+        <p className="text-slate-400 text-sm mb-5">{loginRole === "admin" ? "Sign in to manage your team and leads" : "Sign in to view your leads and pipeline"}</p>
+
+        <GoogleBtn />
+        <div className="flex items-center gap-3 my-4">
+          <div className="flex-1 h-px bg-slate-700" />
+          <span className="text-xs text-slate-500">or</span>
+          <div className="flex-1 h-px bg-slate-700" />
+        </div>
+
+        <form onSubmit={handleLogin} className="space-y-4">
+          <div>
+            <label className="block text-xs font-semibold text-slate-400 mb-1.5 uppercase tracking-wider">Email</label>
+            <input type="email" value={email} onChange={e => setEmail(e.target.value)} required autoFocus
+              className="w-full bg-slate-900 border border-slate-700 text-white placeholder:text-slate-600 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-blue-500 transition-colors"
+              placeholder="you@company.com" />
+          </div>
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider">Password</label>
+              <button type="button" onClick={() => { goTo("forgot"); setForgotEmail(email); }}
+                className="text-xs text-blue-400 hover:text-blue-300 transition-colors">
+                Forgot password?
+              </button>
+            </div>
+            <PwInput value={password} onChange={e => setPassword(e.target.value)} show={showPw} onToggle={() => setShowPw(p => !p)} placeholder="••••••••" />
+          </div>
+          <LoginErrBox msg={error} />
+          <button type="submit" disabled={loginLoading}
+            className={`w-full disabled:opacity-60 text-white font-semibold text-sm py-2.5 rounded-xl transition-colors shadow-lg ${accentColor}`}>
+            {loginLoading ? "Signing in…" : "Sign in"}
+          </button>
+        </form>
+
+        <p className="text-center text-xs text-slate-500 mt-4">
+          Don't have an account?{" "}
+          <button onClick={() => goTo("signup")} className="text-blue-400 hover:text-blue-300 transition-colors">Sign up</button>
+        </p>
+
+      </div>
+    </LoginWrap>
   );
 };
 
@@ -1977,35 +2481,40 @@ const Login = ({ onLogin }) => {
 const ADMIN_NAV = [
   { id: "admin-dashboard",  label: "Dashboard",   icon: "grid"     },
   { id: "admin-reps",       label: "Sales Reps",  icon: "users"    },
-  { id: "admin-leads",      label: "All Leads",   icon: "list",    badge: "89" },
+  { id: "admin-leads",      label: "All Leads",   icon: "list" },
   { id: "admin-settings",   label: "Settings",    icon: "settings" },
 ];
 
 const REP_NAV = [
   { id: "rep-dashboard", label: "My Dashboard", icon: "grid"   },
-  { id: "rep-leads",     label: "My Leads",     icon: "list",  badge: "12" },
+  { id: "rep-leads",     label: "My Leads",     icon: "list" },
   { id: "rep-search",    label: "Search Leads", icon: "search" },
 ];
 
 const App = () => {
-  const [currentUser, setCurrentUser] = useState(() => {
-    try { return JSON.parse(localStorage.getItem("lf_user")); } catch { return null; }
-  });
+  const [currentUser, setCurrentUser] = useState(null);
+  const [authReady,   setAuthReady]   = useState(false);
   const [page,    setPage]    = useState("admin-dashboard");
   const [repPage, setRepPage] = useState("rep-dashboard");
 
-  // Verify token is still valid on mount
+  // Handle OAuth redirect + verify token on mount
   useEffect(() => {
+    const hash = new URLSearchParams(window.location.hash.slice(1));
+    const oauthToken = hash.get("access_token");
+    const type       = hash.get("type");
+    if (oauthToken && type !== "recovery") {
+      localStorage.setItem("lf_token", oauthToken);
+      window.history.replaceState(null, "", window.location.pathname);
+    }
     const token = localStorage.getItem("lf_token");
-    if (!token) { setCurrentUser(null); return; }
+    if (!token) { setAuthReady(true); return; }
     apiFetch("/api/auth/me").then(u => {
       setCurrentUser(u);
       localStorage.setItem("lf_user", JSON.stringify(u));
     }).catch(() => {
       localStorage.removeItem("lf_token");
       localStorage.removeItem("lf_user");
-      setCurrentUser(null);
-    });
+    }).finally(() => setAuthReady(true));
   }, []);
 
   const handleLogin = (user) => {
@@ -2019,6 +2528,13 @@ const App = () => {
     localStorage.removeItem("lf_user");
     setCurrentUser(null);
   };
+
+  // Show blank screen while checking token (prevents login-page flash on OAuth redirect)
+  if (!authReady) return (
+    <div className="min-h-screen bg-slate-900 flex items-center justify-center">
+      <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+    </div>
+  );
 
   if (!currentUser) return <Login onLogin={handleLogin} />;
 

@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """
-LeadFlow Dashboard Backend — FastAPI + Supabase
+LeadFlow Dashboard Backend — FastAPI + Supabase Auth + Organizations
 """
 
 import asyncio
 import json
 import re
 import os
-from datetime import datetime, timedelta
+import secrets
+from datetime import datetime
 from typing import Any, Optional, List
 
 import httpx
@@ -15,53 +16,27 @@ from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 from fastapi import FastAPI, Depends, HTTPException, Body
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
-from passlib.context import CryptContext
-from jose import JWTError, jwt
 from supabase import create_client, Client
 
 load_dotenv()
 
-# ── Config ───────────────────────────────────────────────────────────────────────
-SUPABASE_URL      = os.getenv("SUPABASE_URL", "")
-SUPABASE_KEY      = os.getenv("SUPABASE_KEY", "")
-SECRET_KEY        = os.getenv("JWT_SECRET", "leadflow-dev-secret-change-in-production")
-GOOGLE_API_KEY    = os.getenv("GOOGLE_API_KEY", "")
-GOOGLE_SEARCH_CX  = os.getenv("GOOGLE_SEARCH_CX", "")
-ALGORITHM         = "HS256"
-TOKEN_EXPIRE_DAYS = 7
+# ── Config ────────────────────────────────────────────────────────────────────────
+SUPABASE_URL         = os.getenv("SUPABASE_URL", "")
+SUPABASE_KEY         = os.getenv("SUPABASE_KEY", "")
+SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
 STATUSES = ["Not Contacted", "Contacted", "Responded", "Converted", "Not Interested"]
 
-# ── Supabase client ──────────────────────────────────────────────────────────────
+# ── Supabase clients ──────────────────────────────────────────────────────────────
 sb: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+sb_admin: Optional[Client] = (
+    create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY) if SUPABASE_SERVICE_KEY else None
+)
 
-# ── Auth helpers ─────────────────────────────────────────────────────────────────
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-bearer      = HTTPBearer(auto_error=False)
-
-
-def hash_password(p: str) -> str:
-    return pwd_context.hash(p)
-
-
-def verify_password(plain: str, hashed: str) -> bool:
-    return pwd_context.verify(plain, hashed)
-
-
-def create_token(user_id: str, role: str) -> str:
-    return jwt.encode(
-        {"sub": str(user_id), "role": role,
-         "exp": datetime.utcnow() + timedelta(days=TOKEN_EXPIRE_DAYS)},
-        SECRET_KEY, algorithm=ALGORITHM,
-    )
-
-
-def decode_token(token: str) -> dict:
-    try:
-        return jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-    except JWTError:
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
+# ── Auth ──────────────────────────────────────────────────────────────────────────
+bearer = HTTPBearer(auto_error=False)
 
 
 def get_current_user(
@@ -69,11 +44,30 @@ def get_current_user(
 ) -> dict:
     if not credentials:
         raise HTTPException(status_code=401, detail="Not authenticated")
-    payload = decode_token(credentials.credentials)
-    res = sb.table("users").select("*").eq("id", payload["sub"]).execute()
+    try:
+        user_res = sb.auth.get_user(credentials.credentials)
+        email = user_res.user.email
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    res = sb.table("users").select("*").eq("email", email).execute()
     if not res.data:
-        raise HTTPException(status_code=401, detail="User not found")
-    return res.data[0]
+        # Auto-create for Google OAuth sign-ins (no org assigned yet)
+        meta = getattr(user_res.user, "user_metadata", {}) or {}
+        name = meta.get("full_name") or meta.get("name") or email.split("@")[0]
+        new_user = sb.table("users").insert({
+            "email":         email,
+            "password_hash": "",
+            "name":          name,
+            "role":          "sales_rep",
+            "status":        "active",
+        }).execute().data[0]
+        return new_user
+    user = res.data[0]
+    if user.get("status") == "pending":
+        raise HTTPException(status_code=403, detail="PENDING_APPROVAL")
+    if user.get("status") == "rejected":
+        raise HTTPException(status_code=403, detail="REJECTED")
+    return user
 
 
 def require_admin(user: dict = Depends(get_current_user)) -> dict:
@@ -82,17 +76,19 @@ def require_admin(user: dict = Depends(get_current_user)) -> dict:
     return user
 
 
+def get_user_org(user: dict) -> Optional[dict]:
+    """Return the organization record for a user, or None."""
+    org_id = user.get("organization_id")
+    if not org_id:
+        return None
+    rows = sb.table("organizations").select("*").eq("id", org_id).execute().data
+    return rows[0] if rows else None
+
+
 # ── Pydantic schemas ──────────────────────────────────────────────────────────────
 class LoginRequest(BaseModel):
     email: str
     password: str
-
-
-class RegisterRequest(BaseModel):
-    email: str
-    password: str
-    name: str
-    role: str = "sales_rep"
 
 
 class LeadCreate(BaseModel):
@@ -108,7 +104,7 @@ class LeadCreate(BaseModel):
     weaknesses:    List[str] = []
     company_size:  str = ""
     source_search: str = ""
-    assigned_to:   Optional[str] = None   # UUID string
+    assigned_to:   Optional[str] = None
 
 
 class LeadUpdate(BaseModel):
@@ -117,7 +113,7 @@ class LeadUpdate(BaseModel):
     contact_name: Optional[str] = None
     email:        Optional[str] = None
     phone:        Optional[str] = None
-    assigned_to:  Optional[str] = None   # UUID string
+    assigned_to:  Optional[str] = None
 
 
 class ScrapeRequest(BaseModel):
@@ -142,7 +138,6 @@ LEADS_Q = "*, assignee:assigned_to(name)"
 
 
 def enrich_lead(raw: dict) -> dict:
-    """Return an enriched copy with assignee name flattened and weaknesses as list."""
     lead = dict(raw)
     assignee = lead.pop("assignee", None)
     lead["assigned_to_name"] = (assignee or {}).get("name") if isinstance(assignee, dict) else None
@@ -153,7 +148,7 @@ def enrich_lead(raw: dict) -> dict:
 
 
 # ── FastAPI app ───────────────────────────────────────────────────────────────────
-app = FastAPI(title="LeadFlow API", version="2.0.0")
+app = FastAPI(title="LeadFlow API", version="4.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -164,38 +159,235 @@ app.add_middleware(
 )
 
 
-# ── Auth ──────────────────────────────────────────────────────────────────────────
+# ── Dashboard ─────────────────────────────────────────────────────────────────────
+@app.get("/")
+def serve_dashboard():
+    return FileResponse("dashboard/index.html")
+
+
+# ── Auth routes ───────────────────────────────────────────────────────────────────
 @app.post("/api/auth/login")
 def login(req: LoginRequest):
-    res = sb.table("users").select("*").eq("email", req.email.lower().strip()).execute()
-    if not res.data or not verify_password(req.password, res.data[0]["password_hash"]):
+    try:
+        res = sb.auth.sign_in_with_password({"email": req.email.lower().strip(), "password": req.password})
+    except Exception:
         raise HTTPException(status_code=401, detail="Invalid email or password")
-    u = res.data[0]
+    user_res = sb.table("users").select("*").eq("email", req.email.lower().strip()).execute()
+    if not user_res.data:
+        raise HTTPException(status_code=401, detail="User not found")
+    u = user_res.data[0]
     return {
-        "token": create_token(u["id"], u["role"]),
+        "token": res.session.access_token,
         "user":  {"id": u["id"], "email": u["email"], "name": u["name"], "role": u["role"]},
     }
 
 
 @app.post("/api/auth/register", status_code=201)
-def register(req: RegisterRequest):
-    if sb.table("users").select("id").eq("email", req.email.lower().strip()).execute().data:
+def register(body: dict = Body(...)):
+    email       = body.get("email", "").lower().strip()
+    password    = body.get("password", "")
+    name        = body.get("name", "").strip()
+    invite_code = body.get("invite_code", "").strip().upper()
+    org_name    = body.get("org_name", "").strip()
+
+    if not email or not password or not name:
+        raise HTTPException(status_code=400, detail="name, email and password are required")
+    if sb.table("users").select("id").eq("email", email).execute().data:
         raise HTTPException(status_code=400, detail="Email already registered")
-    u = sb.table("users").insert({
-        "email":         req.email.lower().strip(),
-        "password_hash": hash_password(req.password),
-        "name":          req.name,
-        "role":          req.role,
+
+    # Determine role + org
+    if invite_code:
+        org_data = sb.table("organizations").select("*").eq("invite_code", invite_code).execute().data
+        if not org_data:
+            raise HTTPException(status_code=400, detail="Invalid invite code")
+        org   = org_data[0]
+        role  = "sales_rep"
+        org_id = org["id"]
+    else:
+        if not org_name:
+            raise HTTPException(status_code=400, detail="Organization name is required")
+        role   = "admin"
+        org_id = None  # set after user + org created
+
+    try:
+        sb.auth.sign_up({"email": email, "password": password})
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Registration failed: {e}")
+
+    # Reps joining via invite code are pending until admin approves
+    user_status = "pending" if invite_code else "active"
+
+    user = sb.table("users").insert({
+        "email":           email,
+        "password_hash":   "",
+        "name":            name,
+        "role":            role,
+        "organization_id": org_id,
+        "status":          user_status,
     }).execute().data[0]
-    return {
-        "token": create_token(u["id"], u["role"]),
-        "user":  {"id": u["id"], "email": u["email"], "name": u["name"], "role": u["role"]},
-    }
+
+    if not invite_code:
+        # Create the org and link it back to the user
+        code = secrets.token_hex(4).upper()
+        org  = sb.table("organizations").insert({
+            "name":       org_name,
+            "owner_id":   user["id"],
+            "invite_code": code,
+        }).execute().data[0]
+        sb.table("users").update({"organization_id": org["id"]}).eq("id", user["id"]).execute()
+        return {"message": "Account created. Check your email to confirm before signing in."}
+
+    return {"message": "Request submitted. You will be able to log in once the admin approves your account."}
+
+
+@app.post("/api/auth/forgot-password")
+def forgot_password(body: dict = Body(...)):
+    email = body.get("email", "").lower().strip()
+    if email:
+        try:
+            sb.auth.reset_password_for_email(email, {"redirect_to": "http://localhost:8000"})
+        except Exception:
+            pass
+    return {"message": "If that email is registered, a reset link has been sent"}
+
+
+@app.post("/api/auth/reset-password")
+def reset_password(body: dict = Body(...)):
+    access_token = body.get("access_token", "")
+    new_password  = body.get("new_password", "")
+    if not access_token or not new_password:
+        raise HTTPException(status_code=400, detail="access_token and new_password required")
+    if not sb_admin:
+        raise HTTPException(status_code=500, detail="SUPABASE_SERVICE_KEY not configured")
+    try:
+        user_res = sb_admin.auth.get_user(access_token)
+        user_id  = user_res.user.id
+        sb_admin.auth.admin.update_user_by_id(user_id, {"password": new_password})
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid or expired reset token")
+    return {"message": "Password updated successfully"}
 
 
 @app.get("/api/auth/me")
 def me(user: dict = Depends(get_current_user)):
     return {"id": user["id"], "email": user["email"], "name": user["name"], "role": user["role"]}
+
+
+@app.get("/api/auth/oauth/google-url")
+def google_oauth_url():
+    return {"url": f"{SUPABASE_URL}/auth/v1/authorize?provider=google&redirect_to=http://localhost:8000"}
+
+
+# ── Organization routes ───────────────────────────────────────────────────────────
+@app.get("/api/org")
+def get_org(user: dict = Depends(get_current_user)):
+    org = get_user_org(user)
+    if not org:
+        return None
+    is_owner = user["role"] == "admin"
+    return {
+        "id":                     org["id"],
+        "name":                   org["name"],
+        "invite_code":            org["invite_code"] if is_owner else None,
+        "subscription_tier":      org["subscription_tier"],
+        "monthly_scrape_limit":   org["monthly_scrape_limit"],
+        "scrapes_used_this_month": org["scrapes_used_this_month"],
+        "has_google_api":         bool(org.get("google_api_key")),
+        "google_search_cx":       org.get("google_search_cx", "") if is_owner else None,
+        "owner_id":               org["owner_id"],
+    }
+
+
+@app.put("/api/org")
+def update_org(body: dict = Body(...), user: dict = Depends(require_admin)):
+    org = get_user_org(user)
+    if not org:
+        raise HTTPException(status_code=404, detail="Organization not found")
+    if org["owner_id"] != user["id"]:
+        raise HTTPException(status_code=403, detail="Only the organization owner can update settings")
+    patch: dict = {}
+    if body.get("name"):              patch["name"]             = body["name"]
+    if "google_api_key" in body:      patch["google_api_key"]   = body["google_api_key"]
+    if "google_search_cx" in body:    patch["google_search_cx"] = body["google_search_cx"]
+    if "monthly_scrape_limit" in body: patch["monthly_scrape_limit"] = int(body["monthly_scrape_limit"])
+    if patch:
+        sb.table("organizations").update(patch).eq("id", org["id"]).execute()
+    return get_org(user)
+
+
+@app.post("/api/org/reset-usage")
+def reset_usage(user: dict = Depends(require_admin)):
+    org = get_user_org(user)
+    if not org:
+        raise HTTPException(status_code=404, detail="Organization not found")
+    if org["owner_id"] != user["id"]:
+        raise HTTPException(status_code=403, detail="Only the organization owner can reset usage")
+    sb.table("organizations").update({"scrapes_used_this_month": 0}).eq("id", org["id"]).execute()
+    return {"ok": True}
+
+
+@app.get("/api/org/members")
+def org_members(user: dict = Depends(require_admin)):
+    org = get_user_org(user)
+    if not org:
+        return []
+    members = sb.table("users").select("id,name,email,role,created_at,status").eq("organization_id", org["id"]).execute().data
+    return members
+
+
+@app.get("/api/org/pending")
+def pending_members(user: dict = Depends(require_admin)):
+    org = get_user_org(user)
+    if not org:
+        return []
+    return sb.table("users").select("id,name,email,created_at").eq("organization_id", org["id"]).eq("status", "pending").execute().data
+
+
+@app.post("/api/org/members/{user_id}/approve")
+def approve_member(user_id: str, admin: dict = Depends(require_admin)):
+    org = get_user_org(admin)
+    if not org:
+        raise HTTPException(status_code=404, detail="Organization not found")
+    target = sb.table("users").select("id,organization_id").eq("id", user_id).execute().data
+    if not target or target[0].get("organization_id") != org["id"]:
+        raise HTTPException(status_code=404, detail="User not found in your organization")
+    sb.table("users").update({"status": "active"}).eq("id", user_id).execute()
+    return {"ok": True}
+
+
+@app.post("/api/org/members/{user_id}/reject")
+def reject_member(user_id: str, admin: dict = Depends(require_admin)):
+    org = get_user_org(admin)
+    if not org:
+        raise HTTPException(status_code=404, detail="Organization not found")
+    target = sb.table("users").select("id,organization_id").eq("id", user_id).execute().data
+    if not target or target[0].get("organization_id") != org["id"]:
+        raise HTTPException(status_code=404, detail="User not found in your organization")
+    # Delete from users table and Supabase Auth
+    email = sb.table("users").select("email").eq("id", user_id).execute().data
+    sb.table("users").delete().eq("id", user_id).execute()
+    if email and sb_admin:
+        try:
+            auth_users = sb_admin.auth.admin.list_users()
+            for u in auth_users:
+                if u.email == email[0]["email"]:
+                    sb_admin.auth.admin.delete_user(u.id)
+        except Exception:
+            pass
+    return {"ok": True}
+
+
+@app.post("/api/org/new-invite")
+def regenerate_invite(user: dict = Depends(require_admin)):
+    """Generate a new invite code for the org (invalidates the old one)."""
+    org = get_user_org(user)
+    if not org:
+        raise HTTPException(status_code=404, detail="Organization not found")
+    if org["owner_id"] != user["id"]:
+        raise HTTPException(status_code=403, detail="Only the owner can regenerate the invite code")
+    new_code = secrets.token_hex(4).upper()
+    sb.table("organizations").update({"invite_code": new_code}).eq("id", org["id"]).execute()
+    return {"invite_code": new_code}
 
 
 # ── Leads ─────────────────────────────────────────────────────────────────────────
@@ -209,20 +401,22 @@ def get_leads(user: dict = Depends(get_current_user)):
 
 @app.post("/api/leads", status_code=201)
 def create_lead(req: LeadCreate, user: dict = Depends(get_current_user)):
+    org = get_user_org(user)
     inserted = sb.table("leads").insert({
-        "company_name":  req.company_name,
-        "contact_name":  req.contact_name,
-        "email":         req.email,
-        "phone":         req.phone,
-        "website":       req.website,
-        "city":          req.city,
-        "industry":      req.industry,
-        "status":        req.status,
-        "notes":         req.notes,
-        "weaknesses":    req.weaknesses,
-        "company_size":  req.company_size,
-        "source_search": req.source_search,
-        "assigned_to":   req.assigned_to or user["id"],
+        "company_name":   req.company_name,
+        "contact_name":   req.contact_name,
+        "email":          req.email,
+        "phone":          req.phone,
+        "website":        req.website,
+        "city":           req.city,
+        "industry":       req.industry,
+        "status":         req.status,
+        "notes":          req.notes,
+        "weaknesses":     req.weaknesses,
+        "company_size":   req.company_size,
+        "source_search":  req.source_search,
+        "assigned_to":    req.assigned_to or user["id"],
+        "organization_id": org["id"] if org else None,
     }).execute().data[0]
     full = sb.table("leads").select(LEADS_Q).eq("id", inserted["id"]).execute()
     return enrich_lead(full.data[0])
@@ -291,9 +485,9 @@ def leads_by_rep(user: dict = Depends(require_admin)):
 
 
 # ── Scraping ──────────────────────────────────────────────────────────────────────
-async def _search_leads(query: str, max_results: int = 10) -> List[Any]:
-    if not GOOGLE_API_KEY or not GOOGLE_SEARCH_CX:
-        return [{"error": "Google Search API credentials not configured"}]
+async def _search_leads(query: str, api_key: str, search_cx: str, max_results: int = 10) -> List[Any]:
+    if not api_key or not search_cx:
+        return [{"error": "Google API key not configured. Ask your admin to add it in Settings."}]
     results: List[Any] = []
     try:
         async with httpx.AsyncClient(timeout=10) as client:
@@ -302,7 +496,7 @@ async def _search_leads(query: str, max_results: int = 10) -> List[Any]:
                 num = min(10, max_results - len(results))
                 resp = await client.get(
                     "https://www.googleapis.com/customsearch/v1",
-                    params={"key": GOOGLE_API_KEY, "cx": GOOGLE_SEARCH_CX,
+                    params={"key": api_key, "cx": search_cx,
                             "q": query, "num": num, "start": start},
                 )
                 if resp.status_code == 429 or (resp.status_code == 403 and "rateLimitExceeded" in resp.text):
@@ -353,10 +547,26 @@ async def _scrape_contact_info(url: str) -> dict:
 
 @app.post("/api/scrape")
 async def scrape(req: ScrapeRequest, user: dict = Depends(get_current_user)):
-    query = f"{req.industry} companies in {req.location}"
-    search_results = await _search_leads(query, max_results=min(req.quantity, 30))
+    # Must belong to an org
+    org = get_user_org(user)
+    if not org:
+        raise HTTPException(
+            status_code=403,
+            detail="You need to join an organization to search for leads. Ask your admin for an invite code."
+        )
 
-    # Bubble up API-level errors immediately
+    # Check monthly limit
+    if org["scrapes_used_this_month"] >= org["monthly_scrape_limit"]:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Monthly scrape limit reached ({org['monthly_scrape_limit']} searches). Reset the counter in Admin Settings or upgrade your plan."
+        )
+
+    api_key   = org.get("google_api_key", "")
+    search_cx = org.get("google_search_cx", "")
+    query     = f"{req.industry} companies in {req.location}"
+    search_results = await _search_leads(query, api_key, search_cx, max_results=min(req.quantity, 30))
+
     errors = [r for r in search_results if r.get("error")]
     if errors and len(errors) == len(search_results):
         return {"session_id": None, "query": query, "results": errors[:1], "total": 0}
@@ -389,13 +599,19 @@ async def scrape(req: ScrapeRequest, user: dict = Depends(get_current_user)):
     if req.email_req == "required":
         results = [r for r in results if r.get("has_email") and not r.get("error")]
 
+    # Increment org scrape usage
+    sb.table("organizations").update({
+        "scrapes_used_this_month": org["scrapes_used_this_month"] + 1
+    }).eq("id", org["id"]).execute()
+
     session = sb.table("search_sessions").insert({
-        "query":         query,
-        "location":      req.location,
-        "industry":      req.industry,
-        "criteria":      req.criteria,
-        "results_count": len(results),
-        "created_by":    user["id"],
+        "query":           query,
+        "location":        req.location,
+        "industry":        req.industry,
+        "criteria":        req.criteria,
+        "results_count":   len(results),
+        "created_by":      user["id"],
+        "organization_id": org["id"],
     }).execute().data[0]
 
     return {"session_id": session["id"], "query": query, "results": results, "total": len(results)}
@@ -436,13 +652,22 @@ def get_reps(user: dict = Depends(require_admin)):
 
 @app.post("/api/reps", status_code=201)
 def create_rep(req: RepCreate, admin: dict = Depends(require_admin)):
-    if sb.table("users").select("id").eq("email", req.email.lower().strip()).execute().data:
+    email = req.email.lower().strip()
+    if sb.table("users").select("id").eq("email", email).execute().data:
         raise HTTPException(status_code=400, detail="Email already registered")
+    if not sb_admin:
+        raise HTTPException(status_code=500, detail="SUPABASE_SERVICE_KEY not configured")
+    try:
+        sb_admin.auth.admin.create_user({"email": email, "password": req.password, "email_confirm": True})
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Could not create auth user: {e}")
+    org = get_user_org(admin)
     u = sb.table("users").insert({
-        "email":         req.email.lower().strip(),
-        "password_hash": hash_password(req.password),
-        "name":          req.name,
-        "role":          "sales_rep",
+        "email":           email,
+        "password_hash":   "",
+        "name":            req.name,
+        "role":            "sales_rep",
+        "organization_id": org["id"] if org else None,
     }).execute().data[0]
     return {"id": u["id"], "name": u["name"], "email": u["email"], "role": u["role"]}
 
