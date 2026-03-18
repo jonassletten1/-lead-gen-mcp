@@ -626,38 +626,35 @@ async def _search_leads(query: str, api_key: str, search_cx: str, max_results: i
         return [{"error": "Search API key not configured. Ask your admin to add it in Settings → API Config."}]
     results: List[Any] = []
     try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            offset: int = 0
+        async with httpx.AsyncClient(timeout=15) as client:
+            page = 1
             while len(results) < max_results:
-                count = min(10, max_results - len(results))
-                resp = await client.get(
-                    "https://api.bing.microsoft.com/v7.0/search",
-                    headers={"Ocp-Apim-Subscription-Key": api_key},
-                    params={"q": query, "count": count, "offset": offset,
-                            "responseFilter": "Webpages", "mkt": "en-US"},
+                resp = await client.post(
+                    "https://google.serper.dev/search",
+                    headers={"X-API-KEY": api_key, "Content-Type": "application/json"},
+                    json={"q": query, "num": min(10, max_results - len(results)), "page": page},
                 )
                 if resp.status_code == 401:
-                    results.append({"error": "Bing API key is invalid. Check Settings → API Config."})
+                    results.append({"error": "Serper API key is invalid. Check Settings → API Config."})
                     break
                 if resp.status_code == 403:
-                    results.append({"error": "Bing API key does not have access. Make sure you created a Bing Web Search resource in Azure."})
+                    results.append({"error": "Serper API quota reached or key invalid. Check serper.dev for usage."})
                     break
                 if resp.status_code == 429:
-                    results.append({"error": "Bing Search API quota reached. Try again later."})
+                    results.append({"error": "Serper API rate limit hit. Try again in a moment."})
                     break
                 resp.raise_for_status()
-                web_pages = resp.json().get("webPages", {})
-                items: List[Any] = web_pages.get("value", [])
+                items: List[Any] = resp.json().get("organic", [])
                 if not items:
                     break
                 for item in items:
                     results.append({
-                        "title":   item.get("name", ""),
-                        "url":     item.get("url", ""),
+                        "title":   item.get("title", ""),
+                        "url":     item.get("link", ""),
                         "snippet": item.get("snippet", ""),
                     })
-                offset += len(items)
-                if len(items) < count:
+                page += 1
+                if len(items) < 10:
                     break
     except Exception as e:
         results.append({"error": str(e)})
