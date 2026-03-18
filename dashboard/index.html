@@ -2042,7 +2042,7 @@ const Login = ({ onLogin }) => {
     return hash.get("type") === "recovery" ? hash.get("access_token") : null;
   });
 
-  // view: 'role' | 'login' | 'signup' | 'signup-sent' | 'forgot' | 'forgot-sent' | 'reset' | 'reset-done'
+  // view: 'role' | 'account' | 'login' | 'signup' | 'signup-sent' | 'forgot' | 'forgot-sent' | 'reset' | 'reset-done'
   const [view, setView] = useState(resetToken ? "reset" : "role");
   const [loginRole, setLoginRole] = useState("admin"); // "admin" | "rep"
 
@@ -2305,6 +2305,9 @@ const Login = ({ onLogin }) => {
   if (view === "signup") return (
     <LoginWrap>
       <div className="bg-slate-800 border border-slate-700 rounded-2xl p-7 shadow-2xl">
+        <button onClick={() => goTo("account")} className="flex items-center gap-1 text-slate-400 hover:text-white text-xs mb-5 transition-colors">
+          ← Back
+        </button>
         <h2 className="text-lg font-bold text-white mb-1">Create an account</h2>
         <p className="text-slate-400 text-sm mb-5">Get started with LeadFlow</p>
 
@@ -2374,10 +2377,6 @@ const Login = ({ onLogin }) => {
             {signupLoading ? "Creating account…" : suOrgMode === "create" ? "Create team & account" : "Join team"}
           </button>
         </form>
-        <p className="text-center text-xs text-slate-500 mt-4">
-          Already have an account?{" "}
-          <button onClick={() => goTo("login")} className="text-blue-400 hover:text-blue-300 transition-colors">Sign in</button>
-        </p>
       </div>
     </LoginWrap>
   );
@@ -2387,7 +2386,7 @@ const Login = ({ onLogin }) => {
     <LoginWrap>
       <div className="space-y-3">
         <p className="text-center text-slate-300 text-base font-semibold mb-2">I am a…</p>
-        <button onClick={() => { setLoginRole("admin"); goTo("login"); }}
+        <button onClick={() => { setLoginRole("admin"); goTo("account"); }}
           className="w-full bg-slate-800 border-2 border-blue-600 hover:border-blue-400 rounded-2xl p-6 flex items-center gap-4 transition-all hover:scale-[1.02] active:scale-[0.99]">
           <div className="w-12 h-12 bg-blue-600 rounded-xl flex items-center justify-center flex-shrink-0">
             <Icon name="settings" className="w-6 h-6 text-white" />
@@ -2398,7 +2397,7 @@ const Login = ({ onLogin }) => {
           </div>
           <Icon name="chevronRight" className="w-5 h-5 text-slate-500 ml-auto" />
         </button>
-        <button onClick={() => { setLoginRole("rep"); goTo("login"); }}
+        <button onClick={() => { setLoginRole("rep"); goTo("account"); }}
           className="w-full bg-slate-800 border-2 border-violet-600 hover:border-violet-400 rounded-2xl p-6 flex items-center gap-4 transition-all hover:scale-[1.02] active:scale-[0.99]">
           <div className="w-12 h-12 bg-violet-600 rounded-xl flex items-center justify-center flex-shrink-0">
             <Icon name="user" className="w-6 h-6 text-white" />
@@ -2409,10 +2408,44 @@ const Login = ({ onLogin }) => {
           </div>
           <Icon name="chevronRight" className="w-5 h-5 text-slate-500 ml-auto" />
         </button>
-        <p className="text-center text-xs text-slate-600 mt-4">
-          New here?{" "}
-          <button onClick={() => goTo("signup")} className="text-blue-400 hover:text-blue-300 transition-colors">Create an account</button>
-        </p>
+      </div>
+    </LoginWrap>
+  );
+
+  /* ── Account? screen ── */
+  if (view === "account") return (
+    <LoginWrap>
+      <div className="space-y-3">
+        <button onClick={() => goTo("role")} className="flex items-center gap-1 text-slate-400 hover:text-white text-xs mb-1 transition-colors">
+          ← Back
+        </button>
+        <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg mb-1 ${loginRole === "admin" ? "bg-blue-900/40 text-blue-300" : "bg-violet-900/40 text-violet-300"}`}>
+          <Icon name={loginRole === "admin" ? "settings" : "user"} className="w-3.5 h-3.5" />
+          <span className="text-xs font-semibold">{loginRole === "admin" ? "Sales Admin" : "Sales Rep"}</span>
+        </div>
+        <p className="text-white text-lg font-bold mb-1">Do you already have an account?</p>
+        <button onClick={() => goTo("login")}
+          className={`w-full rounded-2xl p-5 flex items-center gap-4 transition-all hover:scale-[1.02] active:scale-[0.99] ${loginRole === "admin" ? "bg-blue-600 hover:bg-blue-500" : "bg-violet-600 hover:bg-violet-500"}`}>
+          <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center flex-shrink-0">
+            <Icon name="user" className="w-5 h-5 text-white" />
+          </div>
+          <div className="text-left">
+            <p className="font-bold text-white text-sm">Yes, sign me in</p>
+            <p className="text-xs text-white/70 mt-0.5">I have an existing account</p>
+          </div>
+          <Icon name="chevronRight" className="w-5 h-5 text-white/60 ml-auto" />
+        </button>
+        <button onClick={() => goTo("signup")}
+          className="w-full bg-slate-800 border-2 border-slate-600 hover:border-slate-400 rounded-2xl p-5 flex items-center gap-4 transition-all hover:scale-[1.02] active:scale-[0.99]">
+          <div className="w-10 h-10 bg-slate-700 rounded-xl flex items-center justify-center flex-shrink-0">
+            <Icon name="plus" className="w-5 h-5 text-slate-300" />
+          </div>
+          <div className="text-left">
+            <p className="font-bold text-white text-sm">No, create an account</p>
+            <p className="text-xs text-slate-400 mt-0.5">I'm new here</p>
+          </div>
+          <Icon name="chevronRight" className="w-5 h-5 text-slate-500 ml-auto" />
+        </button>
       </div>
     </LoginWrap>
   );
@@ -2422,7 +2455,7 @@ const Login = ({ onLogin }) => {
   return (
     <LoginWrap>
       <div className="bg-slate-800 border border-slate-700 rounded-2xl p-7 shadow-2xl">
-        <button onClick={() => goTo("role")} className="flex items-center gap-1 text-slate-400 hover:text-white text-xs mb-5 transition-colors">
+        <button onClick={() => goTo("account")} className="flex items-center gap-1 text-slate-400 hover:text-white text-xs mb-5 transition-colors">
           ← Back
         </button>
 
@@ -2465,10 +2498,6 @@ const Login = ({ onLogin }) => {
           </button>
         </form>
 
-        <p className="text-center text-xs text-slate-500 mt-4">
-          Don't have an account?{" "}
-          <button onClick={() => goTo("signup")} className="text-blue-400 hover:text-blue-300 transition-colors">Sign up</button>
-        </p>
 
       </div>
     </LoginWrap>

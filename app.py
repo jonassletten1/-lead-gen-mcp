@@ -324,8 +324,9 @@ def me(user: dict = Depends(get_current_user)):
 
 
 @app.get("/api/auth/oauth/google-url")
-def google_oauth_url():
-    return {"url": f"{SUPABASE_URL}/auth/v1/authorize?provider=google&redirect_to=http://localhost:8000"}
+def google_oauth_url(request: Request):
+    origin = request.headers.get("origin") or str(request.base_url).rstrip("/")
+    return {"url": f"{SUPABASE_URL}/auth/v1/authorize?provider=google&redirect_to={origin}"}
 
 
 # ── Organization routes ───────────────────────────────────────────────────────────
