@@ -9,6 +9,7 @@ import re
 import os
 import secrets
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Optional, List
 
 import httpx
@@ -162,7 +163,7 @@ app.add_middleware(
 # ── Dashboard ─────────────────────────────────────────────────────────────────────
 @app.get("/")
 def serve_dashboard():
-    return FileResponse("dashboard/index.html")
+    return FileResponse(Path(__file__).parent / "dashboard" / "index.html")
 
 
 # ── Auth routes ───────────────────────────────────────────────────────────────────

@@ -52,7 +52,7 @@
 const { useState, useCallback, useEffect, useRef } = React;
 
 /* ─────────────────────────────── API UTILITIES ─────────────────────────────── */
-const API_BASE = "http://localhost:8000";
+const API_BASE = window.location.port === "8000" ? "http://localhost:8000" : "";
 
 const apiFetch = async (path, options = {}) => {
   const token = localStorage.getItem("lf_token");
