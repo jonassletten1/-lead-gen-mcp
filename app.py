@@ -702,8 +702,12 @@ async def scrape(req: ScrapeRequest, user: dict = Depends(get_current_user)):
 
     api_key   = org.get("google_api_key", "")
     print(f"[SCRAPE] org={org.get('name')} key_len={len(api_key)} key_start={api_key[:8]!r}")
-    query     = f"{req.industry} companies in {req.location}"
+    # Use first industry only for a clean query (multiple industries joined with commas breaks search)
+    primary_industry = req.industry.split(",")[0].strip() if req.industry else "business"
+    query     = f"{primary_industry} companies in {req.location}"
+    print(f"[SCRAPE] query={query!r}")
     search_results = await _search_leads(query, api_key, "", max_results=min(req.quantity, 30))
+    print(f"[SCRAPE] search_results count={len(search_results)} first={search_results[:1]}")
 
     errors = [r for r in search_results if r.get("error")]
     if errors and len(errors) == len(search_results):
