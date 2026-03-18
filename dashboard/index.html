@@ -1315,6 +1315,7 @@ const RepSearchLeads = ({ user = {} }) => {
   const [progressStep, setProgressStep] = useState(0);
   const [savedLeads, setSavedLeads] = useState(new Set());
   const [selectedLeads, setSelectedLeads] = useState(new Set());
+  const [scrapeError, setScrapeError] = useState("");
 
   // Section 1
   const [industryInput, setIndustryInput] = useState("");
@@ -1400,16 +1401,29 @@ const RepSearchLeads = ({ user = {} }) => {
         }),
       });
       clearInterval(iv);
-      // Assign stable IDs for selection tracking
-      const mapped = (data.results || []).map((r, i) => ({ ...r, id: i + 1 }));
-      setResults(mapped);
+      // Check if backend returned an API-level error inside results
+      const raw = data.results || [];
+      const apiError = raw.find(r => r.error);
+      if (apiError) {
+        setResults([]);
+        setProgress(100);
+        setProgressStep(PROGRESS_STEPS.length - 1);
+        setTimeout(() => { setPhase("results"); setScrapeError(apiError.error); }, 600);
+      } else {
+        const mapped = raw.map((r, i) => ({ ...r, id: i + 1 }));
+        setResults(mapped);
+        setScrapeError("");
+        setProgress(100);
+        setProgressStep(PROGRESS_STEPS.length - 1);
+        setTimeout(() => setPhase("results"), 600);
+      }
+    } catch (err) {
+      clearInterval(iv);
+      setResults([]);
+      setScrapeError(err.message || "Scrape failed");
       setProgress(100);
       setProgressStep(PROGRESS_STEPS.length - 1);
       setTimeout(() => setPhase("results"), 600);
-    } catch (err) {
-      clearInterval(iv);
-      alert("Scrape failed: " + err.message);
-      setPhase("form");
     }
   };
 
@@ -1709,25 +1723,59 @@ const RepSearchLeads = ({ user = {} }) => {
     <div className="p-6 space-y-5 max-w-5xl">
       <div className="flex items-center justify-between gap-4">
         <div>
-          <h2 className="text-xl font-bold text-slate-800">{results.length} leads found</h2>
+          <h2 className="text-xl font-bold text-slate-800">
+            {scrapeError ? "Search failed" : `${results.length} leads found`}
+          </h2>
           <p className="text-sm text-slate-500 mt-0.5">{industryInput} · {location} · {radius}</p>
         </div>
-        <button onClick={() => { setPhase("form"); setSelectedLeads(new Set()); setSavedLeads(new Set()); setResults([]); }}
+        <button onClick={() => { setPhase("form"); setSelectedLeads(new Set()); setSavedLeads(new Set()); setResults([]); setScrapeError(""); }}
           className="text-xs font-semibold text-slate-600 border border-slate-200 rounded-xl px-4 py-2 hover:bg-slate-50 bg-white transition-colors flex-shrink-0">
           ← New Search
         </button>
       </div>
 
+      {/* API error banner */}
+      {scrapeError && (
+        <div className="bg-red-50 border border-red-200 rounded-2xl p-5 flex gap-4 items-start">
+          <div className="w-8 h-8 bg-red-100 rounded-xl flex items-center justify-center flex-shrink-0">
+            <span className="text-red-500 text-base">⚠️</span>
+          </div>
+          <div>
+            <p className="font-semibold text-red-800 text-sm">Search error</p>
+            <p className="text-red-600 text-sm mt-1">{scrapeError}</p>
+            {scrapeError.includes("customsearch.googleapis.com") && (
+              <a href={scrapeError.match(/https:\/\/\S+/)?.[0]} target="_blank" rel="noreferrer"
+                className="inline-block mt-2 text-xs font-semibold text-blue-600 hover:underline">
+                Open Google Cloud Console →
+              </a>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Empty state (no error, just no results) */}
+      {!scrapeError && results.length === 0 && (
+        <div className="bg-white border border-slate-100 rounded-2xl p-10 text-center shadow-sm">
+          <div className="w-12 h-12 bg-slate-100 rounded-2xl flex items-center justify-center mx-auto mb-3">
+            <Icon name="search" className="w-6 h-6 text-slate-400" />
+          </div>
+          <p className="font-semibold text-slate-700">No leads found</p>
+          <p className="text-sm text-slate-400 mt-1">Try a broader industry term or different location.</p>
+        </div>
+      )}
+
       {/* Summary pills */}
-      <div className="flex flex-wrap gap-2">
-        <span className="text-xs font-semibold bg-blue-50 text-blue-700 px-3 py-1.5 rounded-lg">{results.filter(r=>r.has_email).length} with email</span>
-        <span className="text-xs font-semibold bg-emerald-50 text-emerald-700 px-3 py-1.5 rounded-lg">{results.filter(r=>r.has_phone).length} with phone</span>
-        <span className="text-xs font-semibold bg-amber-50 text-amber-700 px-3 py-1.5 rounded-lg">{results.filter(r=>!r.has_website).length} no website</span>
-        {savedLeads.size > 0 && <span className="text-xs font-semibold bg-slate-800 text-white px-3 py-1.5 rounded-lg">{savedLeads.size} saved</span>}
-      </div>
+      {results.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          <span className="text-xs font-semibold bg-blue-50 text-blue-700 px-3 py-1.5 rounded-lg">{results.filter(r=>r.has_email).length} with email</span>
+          <span className="text-xs font-semibold bg-emerald-50 text-emerald-700 px-3 py-1.5 rounded-lg">{results.filter(r=>r.has_phone).length} with phone</span>
+          <span className="text-xs font-semibold bg-amber-50 text-amber-700 px-3 py-1.5 rounded-lg">{results.filter(r=>!r.has_website).length} no website</span>
+          {savedLeads.size > 0 && <span className="text-xs font-semibold bg-slate-800 text-white px-3 py-1.5 rounded-lg">{savedLeads.size} saved</span>}
+        </div>
+      )}
 
       {/* Results table */}
-      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+      {results.length > 0 && <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
         <div className="flex items-center gap-3 px-5 py-3 bg-slate-50 border-b border-slate-100">
           <div onClick={toggleAll}
             className={`w-4 h-4 rounded border flex items-center justify-center cursor-pointer flex-shrink-0 transition-colors ${allSel ? "bg-blue-600 border-blue-600" : "border-slate-300 bg-white hover:border-blue-400"}`}>
@@ -1771,11 +1819,8 @@ const RepSearchLeads = ({ user = {} }) => {
               </div>
             );
           })}
-          {results.length === 0 && (
-            <div className="px-5 py-8 text-center text-sm text-slate-400">No results found. Try a different search.</div>
-          )}
         </div>
-      </div>
+      </div>}
 
       {/* Save Selected footer */}
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4 flex items-center justify-between gap-4">

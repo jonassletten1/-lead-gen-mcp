@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """
-LeadFlow Dashboard Backend — FastAPI
-Web dashboard API for the lead generation platform.
+LeadFlow Dashboard Backend — FastAPI + Supabase
 """
 
 import asyncio
@@ -13,99 +12,49 @@ from typing import Any, Optional, List
 
 import httpx
 from bs4 import BeautifulSoup
-from duckduckgo_search import DDGS
 from dotenv import load_dotenv
 from fastapi import FastAPI, Depends, HTTPException, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text, ForeignKey
-from sqlalchemy.orm import declarative_base, sessionmaker, Session, relationship
 from pydantic import BaseModel
 from passlib.context import CryptContext
 from jose import JWTError, jwt
+from supabase import create_client, Client
 
 load_dotenv()
 
-# ── Config ──────────────────────────────────────────────────────────────────────
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./leadgen.db")
-SECRET_KEY   = os.getenv("JWT_SECRET", "leadflow-dev-secret-change-in-production")
-ALGORITHM    = "HS256"
+# ── Config ───────────────────────────────────────────────────────────────────────
+SUPABASE_URL      = os.getenv("SUPABASE_URL", "")
+SUPABASE_KEY      = os.getenv("SUPABASE_KEY", "")
+SECRET_KEY        = os.getenv("JWT_SECRET", "leadflow-dev-secret-change-in-production")
+GOOGLE_API_KEY    = os.getenv("GOOGLE_API_KEY", "")
+GOOGLE_SEARCH_CX  = os.getenv("GOOGLE_SEARCH_CX", "")
+ALGORITHM         = "HS256"
 TOKEN_EXPIRE_DAYS = 7
 STATUSES = ["Not Contacted", "Contacted", "Responded", "Converted", "Not Interested"]
 
-# ── Database ────────────────────────────────────────────────────────────────────
-engine       = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-Base         = declarative_base()
+# ── Supabase client ──────────────────────────────────────────────────────────────
+sb: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-
-class User(Base):
-    __tablename__ = "users"
-    id            = Column(Integer, primary_key=True, index=True)
-    email         = Column(String, unique=True, index=True, nullable=False)
-    password_hash = Column(String, nullable=False)
-    name          = Column(String, nullable=False)
-    role          = Column(String, default="sales_rep")   # "admin" | "sales_rep"
-    created_at    = Column(DateTime, default=datetime.utcnow)
-    leads         = relationship("Lead", back_populates="assignee", foreign_keys="Lead.assigned_to")
-
-
-class Lead(Base):
-    __tablename__  = "leads"
-    id             = Column(Integer, primary_key=True, index=True)
-    company_name   = Column(String, nullable=False)
-    contact_name   = Column(String, default="")
-    email          = Column(String, default="")
-    phone          = Column(String, default="")
-    website        = Column(String, default="")
-    city           = Column(String, default="")
-    industry       = Column(String, default="")
-    status         = Column(String, default="Not Contacted")
-    notes          = Column(Text, default="")
-    weaknesses     = Column(Text, default="[]")   # JSON array
-    company_size   = Column(String, default="")
-    source_search  = Column(String, default="")
-    assigned_to    = Column(Integer, ForeignKey("users.id"), nullable=True)
-    created_at     = Column(DateTime, default=datetime.utcnow)
-    updated_at     = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    assignee       = relationship("User", back_populates="leads", foreign_keys=[assigned_to])
-
-
-class SearchSession(Base):
-    __tablename__  = "search_sessions"
-    id             = Column(Integer, primary_key=True, index=True)
-    query          = Column(String, nullable=False)
-    location       = Column(String, default="")
-    industry       = Column(String, default="")
-    criteria       = Column(Text, default="{}")   # JSON
-    results_count  = Column(Integer, default=0)
-    created_by     = Column(Integer, ForeignKey("users.id"), nullable=True)
-    created_at     = Column(DateTime, default=datetime.utcnow)
-    creator        = relationship("User", foreign_keys=[created_by])
-
-
-Base.metadata.create_all(bind=engine)
-
-# ── Auth helpers ────────────────────────────────────────────────────────────────
+# ── Auth helpers ─────────────────────────────────────────────────────────────────
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 bearer      = HTTPBearer(auto_error=False)
 
 
-def hash_password(password: str) -> str:
-    return pwd_context.hash(password)
+def hash_password(p: str) -> str:
+    return pwd_context.hash(p)
 
 
 def verify_password(plain: str, hashed: str) -> bool:
     return pwd_context.verify(plain, hashed)
 
 
-def create_token(user_id: int, role: str) -> str:
-    payload = {
-        "sub":  str(user_id),
-        "role": role,
-        "exp":  datetime.utcnow() + timedelta(days=TOKEN_EXPIRE_DAYS),
-    }
-    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+def create_token(user_id: str, role: str) -> str:
+    return jwt.encode(
+        {"sub": str(user_id), "role": role,
+         "exp": datetime.utcnow() + timedelta(days=TOKEN_EXPIRE_DAYS)},
+        SECRET_KEY, algorithm=ALGORITHM,
+    )
 
 
 def decode_token(token: str) -> dict:
@@ -115,34 +64,25 @@ def decode_token(token: str) -> dict:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
 
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-
 def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(bearer),
-    db: Session = Depends(get_db),
-) -> User:
+) -> dict:
     if not credentials:
         raise HTTPException(status_code=401, detail="Not authenticated")
     payload = decode_token(credentials.credentials)
-    user = db.query(User).filter(User.id == int(payload["sub"])).first()
-    if not user:
+    res = sb.table("users").select("*").eq("id", payload["sub"]).execute()
+    if not res.data:
         raise HTTPException(status_code=401, detail="User not found")
-    return user
+    return res.data[0]
 
 
-def require_admin(user: User = Depends(get_current_user)) -> User:
-    if user.role != "admin":
+def require_admin(user: dict = Depends(get_current_user)) -> dict:
+    if user["role"] != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
     return user
 
 
-# ── Pydantic schemas ─────────────────────────────────────────────────────────────
+# ── Pydantic schemas ──────────────────────────────────────────────────────────────
 class LoginRequest(BaseModel):
     email: str
     password: str
@@ -168,7 +108,7 @@ class LeadCreate(BaseModel):
     weaknesses:    List[str] = []
     company_size:  str = ""
     source_search: str = ""
-    assigned_to:   Optional[int] = None
+    assigned_to:   Optional[str] = None   # UUID string
 
 
 class LeadUpdate(BaseModel):
@@ -177,17 +117,17 @@ class LeadUpdate(BaseModel):
     contact_name: Optional[str] = None
     email:        Optional[str] = None
     phone:        Optional[str] = None
-    assigned_to:  Optional[int] = None
+    assigned_to:  Optional[str] = None   # UUID string
 
 
 class ScrapeRequest(BaseModel):
-    industry:    str
-    location:    str
-    radius:      str = "25km"
-    criteria:    dict = {}
-    phone_req:   str = "preferred"
-    email_req:   str = "preferred"
-    quantity:    int = 25
+    industry:     str
+    location:     str
+    radius:       str = "25km"
+    criteria:     dict = {}
+    phone_req:    str = "preferred"
+    email_req:    str = "preferred"
+    quantity:     int = 25
     company_size: str = "any"
 
 
@@ -197,8 +137,23 @@ class RepCreate(BaseModel):
     name:     str
 
 
-# ── FastAPI app ─────────────────────────────────────────────────────────────────
-app = FastAPI(title="LeadFlow API", version="1.0.0")
+# ── Lead helper ───────────────────────────────────────────────────────────────────
+LEADS_Q = "*, assignee:assigned_to(name)"
+
+
+def enrich_lead(raw: dict) -> dict:
+    """Return an enriched copy with assignee name flattened and weaknesses as list."""
+    lead = dict(raw)
+    assignee = lead.pop("assignee", None)
+    lead["assigned_to_name"] = (assignee or {}).get("name") if isinstance(assignee, dict) else None
+    if isinstance(lead.get("weaknesses"), str):
+        lead["weaknesses"] = json.loads(lead["weaknesses"])
+    lead.setdefault("weaknesses", [])
+    return lead
+
+
+# ── FastAPI app ───────────────────────────────────────────────────────────────────
+app = FastAPI(title="LeadFlow API", version="2.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -209,231 +164,208 @@ app.add_middleware(
 )
 
 
-# ── Auth routes ─────────────────────────────────────────────────────────────────
+# ── Auth ──────────────────────────────────────────────────────────────────────────
 @app.post("/api/auth/login")
-def login(req: LoginRequest, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.email == req.email.lower().strip()).first()
-    if not user or not verify_password(req.password, user.password_hash):
+def login(req: LoginRequest):
+    res = sb.table("users").select("*").eq("email", req.email.lower().strip()).execute()
+    if not res.data or not verify_password(req.password, res.data[0]["password_hash"]):
         raise HTTPException(status_code=401, detail="Invalid email or password")
-    token = create_token(user.id, user.role)
+    u = res.data[0]
     return {
-        "token": token,
-        "user": {"id": user.id, "email": user.email, "name": user.name, "role": user.role},
+        "token": create_token(u["id"], u["role"]),
+        "user":  {"id": u["id"], "email": u["email"], "name": u["name"], "role": u["role"]},
     }
 
 
 @app.post("/api/auth/register", status_code=201)
-def register(req: RegisterRequest, db: Session = Depends(get_db)):
-    if db.query(User).filter(User.email == req.email.lower().strip()).first():
+def register(req: RegisterRequest):
+    if sb.table("users").select("id").eq("email", req.email.lower().strip()).execute().data:
         raise HTTPException(status_code=400, detail="Email already registered")
-    user = User(
-        email=req.email.lower().strip(),
-        password_hash=hash_password(req.password),
-        name=req.name,
-        role=req.role,
-    )
-    db.add(user)
-    db.commit()
-    db.refresh(user)
-    token = create_token(user.id, user.role)
+    u = sb.table("users").insert({
+        "email":         req.email.lower().strip(),
+        "password_hash": hash_password(req.password),
+        "name":          req.name,
+        "role":          req.role,
+    }).execute().data[0]
     return {
-        "token": token,
-        "user": {"id": user.id, "email": user.email, "name": user.name, "role": user.role},
+        "token": create_token(u["id"], u["role"]),
+        "user":  {"id": u["id"], "email": u["email"], "name": u["name"], "role": u["role"]},
     }
 
 
 @app.get("/api/auth/me")
-def me(user: User = Depends(get_current_user)):
-    return {"id": user.id, "email": user.email, "name": user.name, "role": user.role}
+def me(user: dict = Depends(get_current_user)):
+    return {"id": user["id"], "email": user["email"], "name": user["name"], "role": user["role"]}
 
 
-# ── Lead helpers ─────────────────────────────────────────────────────────────────
-def lead_to_dict(lead: Lead) -> dict:
-    return {
-        "id":               lead.id,
-        "company_name":     lead.company_name,
-        "contact_name":     lead.contact_name,
-        "email":            lead.email,
-        "phone":            lead.phone,
-        "website":          lead.website,
-        "city":             lead.city,
-        "industry":         lead.industry,
-        "status":           lead.status,
-        "notes":            lead.notes,
-        "weaknesses":       json.loads(lead.weaknesses or "[]"),
-        "company_size":     lead.company_size,
-        "source_search":    lead.source_search,
-        "assigned_to":      lead.assigned_to,
-        "assigned_to_name": lead.assignee.name if lead.assignee else None,
-        "created_at":       lead.created_at.isoformat() if lead.created_at else None,
-        "updated_at":       lead.updated_at.isoformat() if lead.updated_at else None,
-    }
-
-
-# ── Lead routes ─────────────────────────────────────────────────────────────────
+# ── Leads ─────────────────────────────────────────────────────────────────────────
 @app.get("/api/leads")
-def get_leads(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    q = db.query(Lead)
-    if user.role != "admin":
-        q = q.filter(Lead.assigned_to == user.id)
-    leads = q.order_by(Lead.created_at.desc()).all()
-    return [lead_to_dict(l) for l in leads]
+def get_leads(user: dict = Depends(get_current_user)):
+    q = sb.table("leads").select(LEADS_Q).order("created_at", desc=True)
+    if user["role"] != "admin":
+        q = q.eq("assigned_to", user["id"])
+    return [enrich_lead(l) for l in q.execute().data]
 
 
 @app.post("/api/leads", status_code=201)
-def create_lead(req: LeadCreate, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    lead = Lead(
-        company_name=req.company_name,
-        contact_name=req.contact_name,
-        email=req.email,
-        phone=req.phone,
-        website=req.website,
-        city=req.city,
-        industry=req.industry,
-        status=req.status,
-        notes=req.notes,
-        weaknesses=json.dumps(req.weaknesses),
-        company_size=req.company_size,
-        source_search=req.source_search,
-        assigned_to=req.assigned_to if req.assigned_to else user.id,
-    )
-    db.add(lead)
-    db.commit()
-    db.refresh(lead)
-    return lead_to_dict(lead)
+def create_lead(req: LeadCreate, user: dict = Depends(get_current_user)):
+    inserted = sb.table("leads").insert({
+        "company_name":  req.company_name,
+        "contact_name":  req.contact_name,
+        "email":         req.email,
+        "phone":         req.phone,
+        "website":       req.website,
+        "city":          req.city,
+        "industry":      req.industry,
+        "status":        req.status,
+        "notes":         req.notes,
+        "weaknesses":    req.weaknesses,
+        "company_size":  req.company_size,
+        "source_search": req.source_search,
+        "assigned_to":   req.assigned_to or user["id"],
+    }).execute().data[0]
+    full = sb.table("leads").select(LEADS_Q).eq("id", inserted["id"]).execute()
+    return enrich_lead(full.data[0])
 
 
 @app.put("/api/leads/{lead_id}")
-def update_lead(
-    lead_id: int, req: LeadUpdate,
-    user: User = Depends(get_current_user), db: Session = Depends(get_db)
-):
-    lead = db.query(Lead).filter(Lead.id == lead_id).first()
-    if not lead:
+def update_lead(lead_id: str, req: LeadUpdate, user: dict = Depends(get_current_user)):
+    row = sb.table("leads").select("id,assigned_to").eq("id", lead_id).execute().data
+    if not row:
         raise HTTPException(status_code=404, detail="Lead not found")
-    if user.role != "admin" and lead.assigned_to != user.id:
+    if user["role"] != "admin" and row[0]["assigned_to"] != user["id"]:
         raise HTTPException(status_code=403, detail="Not your lead")
-    if req.status       is not None: lead.status       = req.status
-    if req.notes        is not None: lead.notes        = req.notes
-    if req.contact_name is not None: lead.contact_name = req.contact_name
-    if req.email        is not None: lead.email        = req.email
-    if req.phone        is not None: lead.phone        = req.phone
-    if req.assigned_to  is not None and user.role == "admin":
-        lead.assigned_to = req.assigned_to
-    lead.updated_at = datetime.utcnow()
-    db.commit()
-    db.refresh(lead)
-    return lead_to_dict(lead)
+    patch: dict = {k: v for k, v in {
+        "status":       req.status,
+        "notes":        req.notes,
+        "contact_name": req.contact_name,
+        "email":        req.email,
+        "phone":        req.phone,
+        "assigned_to":  req.assigned_to if user["role"] == "admin" else None,
+        "updated_at":   datetime.utcnow().isoformat(),
+    }.items() if v is not None}
+    sb.table("leads").update(patch).eq("id", lead_id).execute()
+    full = sb.table("leads").select(LEADS_Q).eq("id", lead_id).execute()
+    return enrich_lead(full.data[0])
 
 
 @app.delete("/api/leads/{lead_id}", status_code=204)
-def delete_lead(
-    lead_id: int,
-    user: User = Depends(get_current_user), db: Session = Depends(get_db)
-):
-    lead = db.query(Lead).filter(Lead.id == lead_id).first()
-    if not lead:
+def delete_lead(lead_id: str, user: dict = Depends(get_current_user)):
+    row = sb.table("leads").select("id,assigned_to").eq("id", lead_id).execute().data
+    if not row:
         raise HTTPException(status_code=404, detail="Lead not found")
-    if user.role != "admin" and lead.assigned_to != user.id:
+    if user["role"] != "admin" and row[0]["assigned_to"] != user["id"]:
         raise HTTPException(status_code=403, detail="Not your lead")
-    db.delete(lead)
-    db.commit()
+    sb.table("leads").delete().eq("id", lead_id).execute()
 
 
 @app.get("/api/leads/stats")
-def lead_stats(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    q = db.query(Lead)
-    if user.role != "admin":
-        q = q.filter(Lead.assigned_to == user.id)
-    leads = q.all()
-    counts = {s: 0 for s in STATUSES}
+def lead_stats(user: dict = Depends(get_current_user)):
+    q = sb.table("leads").select("status")
+    if user["role"] != "admin":
+        q = q.eq("assigned_to", user["id"])
+    leads = q.execute().data
+    counts: dict = {s: 0 for s in STATUSES}
     for l in leads:
-        if l.status in counts:
-            counts[l.status] += 1
+        if l["status"] in counts:
+            counts[l["status"]] += 1
     return {"total": len(leads), **counts}
 
 
 @app.get("/api/leads/by-rep")
-def leads_by_rep(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    if user.role != "admin":
-        raise HTTPException(status_code=403, detail="Admin only")
-    reps = db.query(User).filter(User.role == "sales_rep").all()
+def leads_by_rep(user: dict = Depends(require_admin)):
+    reps  = sb.table("users").select("*").eq("role", "sales_rep").execute().data
+    leads = sb.table("leads").select(LEADS_Q).execute().data
     result = []
     for rep in reps:
-        rep_leads = db.query(Lead).filter(Lead.assigned_to == rep.id).all()
-        counts = {s: 0 for s in STATUSES}
-        for l in rep_leads:
-            if l.status in counts:
-                counts[l.status] += 1
+        rl = [enrich_lead(l) for l in leads if l.get("assigned_to") == rep["id"]]
+        counts: dict = {s: 0 for s in STATUSES}
+        for l in rl:
+            if l["status"] in counts:
+                counts[l["status"]] += 1
         result.append({
-            "id":    rep.id,
-            "name":  rep.name,
-            "email": rep.email,
-            "total": len(rep_leads),
-            **counts,
-            "leads": [lead_to_dict(l) for l in rep_leads],
+            "id": rep["id"], "name": rep["name"], "email": rep["email"],
+            "total": len(rl), **counts, "leads": rl,
         })
     return result
 
 
-# ── Scraping logic (mirrored from server.py) ────────────────────────────────────
-async def _search_leads(query: str, max_results: int = 10) -> list[dict]:
-    results = []
+# ── Scraping ──────────────────────────────────────────────────────────────────────
+async def _search_leads(query: str, max_results: int = 10) -> List[Any]:
+    if not GOOGLE_API_KEY or not GOOGLE_SEARCH_CX:
+        return [{"error": "Google Search API credentials not configured"}]
+    results: List[Any] = []
     try:
-        with DDGS() as ddgs:
-            for r in ddgs.text(query, max_results=max_results):
-                results.append({
-                    "title":   r.get("title", ""),
-                    "url":     r.get("href", ""),
-                    "snippet": r.get("body", ""),
-                })
+        async with httpx.AsyncClient(timeout=10) as client:
+            start: int = 1
+            while len(results) < max_results:
+                num = min(10, max_results - len(results))
+                resp = await client.get(
+                    "https://www.googleapis.com/customsearch/v1",
+                    params={"key": GOOGLE_API_KEY, "cx": GOOGLE_SEARCH_CX,
+                            "q": query, "num": num, "start": start},
+                )
+                if resp.status_code == 429 or (resp.status_code == 403 and "rateLimitExceeded" in resp.text):
+                    results.append({"error": "Google Search API daily quota reached (100 searches/day). Try again tomorrow."})
+                    break
+                if resp.status_code == 403 and "accessNotConfigured" in resp.text:
+                    results.append({"error": "Custom Search API is not enabled. Enable it at: https://console.developers.google.com/apis/api/customsearch.googleapis.com/overview"})
+                    break
+                resp.raise_for_status()
+                items: List[Any] = resp.json().get("items", [])
+                if not items:
+                    break
+                for item in items:
+                    results.append({
+                        "title":   item.get("title", ""),
+                        "url":     item.get("link", ""),
+                        "snippet": item.get("snippet", ""),
+                    })
+                start = start + len(items)
+                if len(items) < num:
+                    break
     except Exception as e:
         results.append({"error": str(e)})
     return results
 
 
 async def _scrape_contact_info(url: str) -> dict:
-    info = {"url": url, "page_title": "", "emails": [], "phones": []}
+    info: dict = {"url": url, "page_title": "", "emails": [], "phones": []}
     try:
         async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
-            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-            resp = await client.get(url, headers=headers)
+            resp = await client.get(url, headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            })
             soup = BeautifulSoup(resp.text, "html.parser")
             text = soup.get_text(" ", strip=True)
-
             title_tag = soup.find("title")
             info["page_title"] = title_tag.get_text(strip=True) if title_tag else ""
-
-            raw_emails = re.findall(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b', text)
-            info["emails"] = list({
-                e for e in raw_emails
-                if not re.search(r'\.(png|jpg|jpeg|gif|svg|webp|ico)$', e, re.I)
-            })[:5]
-
-            raw_phones = re.findall(r'(\(?\d{3}\)?[\s.\-]?\d{3}[\s.\-]?\d{4})', text)
-            info["phones"] = list(set(raw_phones))[:5]
+            raw_emails: List[str] = re.findall(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b', text)
+            clean_emails: List[str] = [e for e in raw_emails
+                                       if not re.search(r'\.(png|jpg|jpeg|gif|svg|webp|ico)$', e, re.I)]
+            info["emails"] = list(dict.fromkeys(clean_emails))[:5]
+            raw_phones: List[str] = re.findall(r'(\(?\d{3}\)?[\s.\-]?\d{3}[\s.\-]?\d{4})', text)
+            info["phones"] = list(dict.fromkeys(raw_phones))[:5]
     except Exception as e:
         info["error"] = str(e)
     return info
 
 
-# ── Scrape routes ────────────────────────────────────────────────────────────────
 @app.post("/api/scrape")
-async def scrape(
-    req: ScrapeRequest,
-    user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
+async def scrape(req: ScrapeRequest, user: dict = Depends(get_current_user)):
     query = f"{req.industry} companies in {req.location}"
     search_results = await _search_leads(query, max_results=min(req.quantity, 30))
 
+    # Bubble up API-level errors immediately
+    errors = [r for r in search_results if r.get("error")]
+    if errors and len(errors) == len(search_results):
+        return {"session_id": None, "query": query, "results": errors[:1], "total": 0}
+
     async def scrape_one(r: dict):
         if not r.get("url") or r.get("error"):
-            return None
+            return r if r.get("error") else None
         contact = await _scrape_contact_info(r["url"])
-        # Clean company name from page title
-        raw_title = r.get("title", "")
-        company = raw_title.split(" - ")[0].split(" | ")[0].split(" – ")[0][:80].strip()
+        company = r.get("title", "").split(" - ")[0].split(" | ")[0].split(" – ")[0][:80].strip()
         return {
             "company_name":  company or r["url"],
             "website":       r["url"],
@@ -448,114 +380,84 @@ async def scrape(
             "snippet":       r.get("snippet", ""),
         }
 
-    tasks = [scrape_one(r) for r in search_results[:req.quantity]]
-    raw = await asyncio.gather(*tasks, return_exceptions=True)
-    results = [r for r in raw if r and not isinstance(r, Exception)]
+    raw = await asyncio.gather(*[scrape_one(r) for r in search_results[:req.quantity]],
+                               return_exceptions=True)
+    results: List[Any] = [r for r in raw if r and not isinstance(r, Exception)]
 
-    # Apply contact filters
     if req.phone_req == "required":
-        results = [r for r in results if r["has_phone"]]
+        results = [r for r in results if r.get("has_phone") and not r.get("error")]
     if req.email_req == "required":
-        results = [r for r in results if r["has_email"]]
+        results = [r for r in results if r.get("has_email") and not r.get("error")]
 
-    # Save search session
-    session = SearchSession(
-        query=query,
-        location=req.location,
-        industry=req.industry,
-        criteria=json.dumps(req.criteria),
-        results_count=len(results),
-        created_by=user.id,
-    )
-    db.add(session)
-    db.commit()
-    db.refresh(session)
+    session = sb.table("search_sessions").insert({
+        "query":         query,
+        "location":      req.location,
+        "industry":      req.industry,
+        "criteria":      req.criteria,
+        "results_count": len(results),
+        "created_by":    user["id"],
+    }).execute().data[0]
 
-    return {
-        "session_id": session.id,
-        "query":      query,
-        "results":    results,
-        "total":      len(results),
-    }
+    return {"session_id": session["id"], "query": query, "results": results, "total": len(results)}
 
 
 @app.get("/api/scrape/sessions")
-def scrape_sessions(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    q = db.query(SearchSession)
-    if user.role != "admin":
-        q = q.filter(SearchSession.created_by == user.id)
-    sessions = q.order_by(SearchSession.created_at.desc()).limit(50).all()
+def scrape_sessions(user: dict = Depends(get_current_user)):
+    q = sb.table("search_sessions").select("*").order("created_at", desc=True).limit(50)
+    if user["role"] != "admin":
+        q = q.eq("created_by", user["id"])
     return [
-        {
-            "id":            s.id,
-            "query":         s.query,
-            "location":      s.location,
-            "industry":      s.industry,
-            "results_count": s.results_count,
-            "created_at":    s.created_at.isoformat() if s.created_at else None,
-        }
-        for s in sessions
+        {"id": s["id"], "query": s["query"], "location": s.get("location", ""),
+         "industry": s.get("industry", ""), "results_count": s.get("results_count", 0),
+         "created_at": s.get("created_at")}
+        for s in q.execute().data
     ]
 
 
-# ── Rep routes ───────────────────────────────────────────────────────────────────
+# ── Reps ──────────────────────────────────────────────────────────────────────────
 @app.get("/api/reps")
-def get_reps(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    if user.role != "admin":
-        raise HTTPException(status_code=403, detail="Admin only")
-    reps = db.query(User).filter(User.role == "sales_rep").all()
+def get_reps(user: dict = Depends(require_admin)):
+    reps  = sb.table("users").select("*").eq("role", "sales_rep").execute().data
+    leads = sb.table("leads").select("id,status,assigned_to").execute().data
     result = []
     for rep in reps:
-        leads = db.query(Lead).filter(Lead.assigned_to == rep.id).all()
-        counts = {s: 0 for s in STATUSES}
-        for l in leads:
-            if l.status in counts:
-                counts[l.status] += 1
+        rl = [l for l in leads if l.get("assigned_to") == rep["id"]]
+        counts: dict = {s: 0 for s in STATUSES}
+        for l in rl:
+            if l["status"] in counts:
+                counts[l["status"]] += 1
         result.append({
-            "id":          rep.id,
-            "name":        rep.name,
-            "email":       rep.email,
-            "role":        rep.role,
-            "created_at":  rep.created_at.isoformat() if rep.created_at else None,
-            "total_leads": len(leads),
-            **counts,
+            "id": rep["id"], "name": rep["name"], "email": rep["email"],
+            "role": rep["role"], "created_at": rep.get("created_at"),
+            "total_leads": len(rl), **counts,
         })
     return result
 
 
 @app.post("/api/reps", status_code=201)
-def create_rep(req: RepCreate, admin: User = Depends(require_admin), db: Session = Depends(get_db)):
-    if db.query(User).filter(User.email == req.email.lower().strip()).first():
+def create_rep(req: RepCreate, admin: dict = Depends(require_admin)):
+    if sb.table("users").select("id").eq("email", req.email.lower().strip()).execute().data:
         raise HTTPException(status_code=400, detail="Email already registered")
-    user = User(
-        email=req.email.lower().strip(),
-        password_hash=hash_password(req.password),
-        name=req.name,
-        role="sales_rep",
-    )
-    db.add(user)
-    db.commit()
-    db.refresh(user)
-    return {"id": user.id, "name": user.name, "email": user.email, "role": user.role}
+    u = sb.table("users").insert({
+        "email":         req.email.lower().strip(),
+        "password_hash": hash_password(req.password),
+        "name":          req.name,
+        "role":          "sales_rep",
+    }).execute().data[0]
+    return {"id": u["id"], "name": u["name"], "email": u["email"], "role": u["role"]}
 
 
 @app.put("/api/reps/{rep_id}/assign")
-def assign_lead(
-    rep_id: int,
-    body: dict = Body(...),
-    admin: User = Depends(require_admin),
-    db: Session = Depends(get_db),
-):
+def assign_lead(rep_id: str, body: dict = Body(...), admin: dict = Depends(require_admin)):
     lead_id = body.get("lead_id")
-    lead = db.query(Lead).filter(Lead.id == lead_id).first()
-    if not lead:
+    if not sb.table("leads").select("id").eq("id", lead_id).execute().data:
         raise HTTPException(status_code=404, detail="Lead not found")
-    rep = db.query(User).filter(User.id == rep_id, User.role == "sales_rep").first()
-    if not rep:
+    if not sb.table("users").select("id").eq("id", rep_id).eq("role", "sales_rep").execute().data:
         raise HTTPException(status_code=404, detail="Rep not found")
-    lead.assigned_to = rep_id
-    lead.updated_at  = datetime.utcnow()
-    db.commit()
+    sb.table("leads").update({
+        "assigned_to": rep_id,
+        "updated_at":  datetime.utcnow().isoformat(),
+    }).eq("id", lead_id).execute()
     return {"ok": True}
 
 

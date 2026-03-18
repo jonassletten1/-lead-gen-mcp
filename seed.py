@@ -1,114 +1,81 @@
 #!/usr/bin/env python3
 """
-Seed the database with a default admin user and sample data.
-Usage: python seed.py
+Seed script for LeadFlow — Supabase backend.
+Run AFTER creating the tables in Supabase SQL Editor.
+Safe to re-run: skips records that already exist.
 """
 
-import json
-import sys
 import os
+from dotenv import load_dotenv
+from passlib.context import CryptContext
+from supabase import create_client
 
-sys.path.insert(0, os.path.dirname(__file__))
-from app import SessionLocal, User, Lead, SearchSession, hash_password
+load_dotenv()
 
-db = SessionLocal()
+sb  = create_client(os.getenv("SUPABASE_URL", ""), os.getenv("SUPABASE_KEY", ""))
+pwd = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-# ── Admin user ──────────────────────────────────────────────────────────────────
-ADMIN_EMAIL = "admin@leadflow.io"
-if not db.query(User).filter(User.email == ADMIN_EMAIL).first():
-    admin = User(
-        email=ADMIN_EMAIL,
-        password_hash=hash_password("admin123"),
-        name="Admin User",
-        role="admin",
-    )
-    db.add(admin)
-    db.commit()
-    print(f"✓ Created admin: {ADMIN_EMAIL} / admin123")
-else:
-    print(f"  Admin {ADMIN_EMAIL} already exists")
 
-# ── Sales reps ──────────────────────────────────────────────────────────────────
-REPS_DATA = [
-    {"email": "sarah@leadflow.io",  "name": "Sarah Chen",      "password": "rep123"},
-    {"email": "marcus@leadflow.io", "name": "Marcus Johnson",  "password": "rep123"},
-    {"email": "priya@leadflow.io",  "name": "Priya Patel",     "password": "rep123"},
-    {"email": "tom@leadflow.io",    "name": "Tom Williams",    "password": "rep123"},
+def upsert_user(email, password, name, role):
+    existing = sb.table("users").select("id").eq("email", email).execute().data
+    if existing:
+        print(f"  skip  {email} (already exists)")
+        return existing[0]["id"]
+    row = sb.table("users").insert({
+        "email":         email,
+        "password_hash": pwd.hash(password),
+        "name":          name,
+        "role":          role,
+    }).execute().data[0]
+    print(f"  created {role}: {email}")
+    return row["id"]
+
+
+def upsert_lead(data):
+    existing = sb.table("leads").select("id") \
+        .eq("company_name", data["company_name"]) \
+        .eq("assigned_to", data["assigned_to"]).execute().data
+    if existing:
+        print(f"  skip  lead: {data['company_name']}")
+        return
+    sb.table("leads").insert(data).execute()
+    print(f"  created lead: {data['company_name']}")
+
+
+print("\n── Users ───────────────────────────────────")
+admin_id  = upsert_user("admin@leadflow.io",  "admin123", "Admin",       "admin")
+sarah_id  = upsert_user("sarah@leadflow.io",  "rep123",   "Sarah Chen",  "sales_rep")
+marcus_id = upsert_user("marcus@leadflow.io", "rep123",   "Marcus Webb", "sales_rep")
+priya_id  = upsert_user("priya@leadflow.io",  "rep123",   "Priya Nair",  "sales_rep")
+tom_id    = upsert_user("tom@leadflow.io",    "rep123",   "Tom Reilly",  "sales_rep")
+
+print("\n── Leads ───────────────────────────────────")
+leads = [
+    # Sarah Chen (6 leads)
+    dict(company_name="Frost HVAC Services",      contact_name="Mike Frost",   email="mike@frosthvac.com",        phone="713-555-0192", website="frosthvac.com",        city="Houston, TX",   industry="HVAC",         status="Contacted",      notes="Owner answered. Call back Thursday.", weaknesses=["No online booking","Slow website","Missing reviews"], company_size="Small",  source_search="HVAC companies in Houston TX",        assigned_to=sarah_id),
+    dict(company_name="AirCool Pro",              contact_name="",             email="",                          phone="832-555-0347", website="aircoolpro.com",        city="Houston, TX",   industry="HVAC",         status="Not Contacted",  notes="",                                    weaknesses=["No email found","Outdated website"],                  company_size="Small",  source_search="HVAC companies in Houston TX",        assigned_to=sarah_id),
+    dict(company_name="Gulf Coast Heating & Air", contact_name="James Tran",   email="james@gcheating.com",       phone="713-555-0481", website="gcheating.com",        city="Houston, TX",   industry="HVAC",         status="Responded",      notes="Interested in social media package.", weaknesses=["No social media","Weak SEO"],                         company_size="Medium", source_search="HVAC companies in Houston TX",        assigned_to=sarah_id),
+    dict(company_name="Bright Future Solar",      contact_name="Leo Kim",      email="leo@bfsolar.io",            phone="619-555-1108", website="bfsolar.io",           city="San Diego, CA", industry="Solar",        status="Responded",      notes="",                                    weaknesses=["No reviews","No booking"],                            company_size="Small",  source_search="Solar companies in San Diego CA",     assigned_to=sarah_id),
+    dict(company_name="BlueSky Plumbing Co",      contact_name="Dana Cruz",    email="dana@blueskyplumb.com",     phone="713-555-0234", website="blueskyplumb.com",     city="Houston, TX",   industry="Plumbing",     status="Converted",      notes="Closed deal — monthly SEO retainer.", weaknesses=["Poor SEO","No Google Ads"],                           company_size="Small",  source_search="Plumbing companies in Houston TX",    assigned_to=sarah_id),
+    dict(company_name="Apex HVAC Solutions",      contact_name="Robert Mills", email="r.mills@apexhvac.com",      phone="713-555-0182", website="apexhvac.com",         city="Houston, TX",   industry="HVAC",         status="Not Interested", notes="Not interested at this time.",         weaknesses=[],                                                     company_size="Large",  source_search="HVAC companies in Houston TX",        assigned_to=sarah_id),
+    # Marcus Webb (3 leads)
+    dict(company_name="Premier Roofing Group",    contact_name="Kevin Hart",   email="k.hart@premieroof.com",     phone="214-555-0311", website="premieroof.com",       city="Dallas, TX",    industry="Roofing",      status="Contacted",      notes="",                                    weaknesses=["No online booking","Low reviews"],                    company_size="Medium", source_search="Roofing companies in Dallas TX",      assigned_to=marcus_id),
+    dict(company_name="Summit Garage Doors",      contact_name="Carol White",  email="carol@summitgd.com",        phone="720-555-1221", website="summitgd.com",         city="Denver, CO",    industry="Construction", status="Not Contacted",  notes="",                                    weaknesses=["Bad website","No social media"],                      company_size="Small",  source_search="Garage door companies in Denver CO",  assigned_to=marcus_id),
+    dict(company_name="TechBuild Contractors",    contact_name="Alan Patel",   email="alan@techbuild.co",         phone="312-555-0712", website="techbuild.co",         city="Chicago, IL",   industry="Construction", status="Not Interested", notes="",                                    weaknesses=[],                                                     company_size="Large",  source_search="Construction companies in Chicago IL", assigned_to=marcus_id),
+    # Priya Nair (3 leads)
+    dict(company_name="GreenLeaf Landscaping",    contact_name="Susan Park",   email="susan@greenleaf.io",        phone="512-555-0447", website="greenleaf.io",         city="Austin, TX",    industry="Landscaping",  status="Converted",      notes="Signed up for website redesign.",      weaknesses=["No SEO","No booking"],                                company_size="Small",  source_search="Landscaping companies in Austin TX",  assigned_to=priya_id),
+    dict(company_name="Lone Star Electric",       contact_name="Bill Torres",  email="bill@lonestarelectric.com", phone="832-555-0523", website="lonestarelectric.com", city="Houston, TX",   industry="Electrical",   status="Not Contacted",  notes="",                                    weaknesses=["No Google Ads","Weak website"],                       company_size="Medium", source_search="Electrical companies in Houston TX",  assigned_to=priya_id),
+    dict(company_name="Pacific Northwest HVAC",   contact_name="Trevor Nash",  email="tnash@pacnwhvac.com",       phone="206-555-1319", website="pacnwhvac.com",        city="Seattle, WA",   industry="HVAC",         status="Converted",      notes="",                                    weaknesses=["No reviews","No social media"],                       company_size="Medium", source_search="HVAC companies in Seattle WA",        assigned_to=priya_id),
+    # Tom Reilly (3 leads)
+    dict(company_name="Harvest Pest Control",     contact_name="Nina Briggs",  email="nina@harvestpc.com",        phone="602-555-1012", website="harvestpc.com",        city="Phoenix, AZ",   industry="Pest Control", status="Contacted",      notes="",                                    weaknesses=["No booking system","Low reviews"],                    company_size="Small",  source_search="Pest control companies in Phoenix AZ", assigned_to=tom_id),
+    dict(company_name="Desert Air Conditioning",  contact_name="Rosa Jimenez", email="rosa@desertac.com",         phone="520-555-1425", website="desertac.com",         city="Tucson, AZ",    industry="HVAC",         status="Contacted",      notes="",                                    weaknesses=["Bad website","No online booking"],                    company_size="Small",  source_search="HVAC companies in Tucson AZ",         assigned_to=tom_id),
+    dict(company_name="Allied Security Systems",  contact_name="Frank Owens",  email="fowens@alliedsec.io",       phone="404-555-1511", website="alliedsec.io",         city="Atlanta, GA",   industry="IT Services",  status="Responded",      notes="",                                    weaknesses=["No social media","Poor SEO"],                         company_size="Medium", source_search="Security companies in Atlanta GA",     assigned_to=tom_id),
 ]
 
-reps = []
-for r in REPS_DATA:
-    existing = db.query(User).filter(User.email == r["email"]).first()
-    if not existing:
-        rep = User(
-            email=r["email"],
-            password_hash=hash_password(r["password"]),
-            name=r["name"],
-            role="sales_rep",
-        )
-        db.add(rep)
-        db.commit()
-        db.refresh(rep)
-        reps.append(rep)
-        print(f"✓ Created rep: {r['email']} / {r['password']}")
-    else:
-        reps.append(existing)
-        print(f"  Rep {r['email']} already exists")
+for lead in leads:
+    upsert_lead(lead)
 
-# ── Sample leads ─────────────────────────────────────────────────────────────────
-SAMPLE_LEADS = [
-    # Sarah Chen (idx 0) — HVAC + Solar + Plumbing
-    {"company_name": "Frost HVAC Services",       "contact_name": "Mike Frost",    "email": "mike@frosthvac.com",           "phone": "713-555-0192", "website": "frosthvac.com",           "city": "Houston, TX",      "industry": "HVAC",      "status": "Contacted",     "weaknesses": ["No online booking", "Slow website", "Missing reviews"], "company_size": "Small",  "source_search": "HVAC companies in Houston, TX",         "rep_idx": 0},
-    {"company_name": "AirCool Pro",               "contact_name": "",              "email": "",                             "phone": "832-555-0347", "website": "aircoolpro.com",           "city": "Houston, TX",      "industry": "HVAC",      "status": "Not Contacted", "weaknesses": ["No email found", "Outdated website"],            "company_size": "Small",  "source_search": "HVAC companies in Houston, TX",         "rep_idx": 0},
-    {"company_name": "Gulf Coast Heating & Air",  "contact_name": "James Tran",    "email": "james@gcheating.com",          "phone": "713-555-0481", "website": "gcheating.com",           "city": "Houston, TX",      "industry": "HVAC",      "status": "Responded",     "weaknesses": ["No SEO presence", "Poor Google Maps listing"],   "company_size": "Medium", "source_search": "HVAC companies in Houston, TX",         "rep_idx": 0},
-    {"company_name": "SunPower Solutions",        "contact_name": "Rachel Kim",    "email": "rkim@sunpowersd.com",          "phone": "",             "website": "sunpowersd.com",          "city": "San Diego, CA",    "industry": "Solar",     "status": "Not Contacted", "weaknesses": ["No phone number listed", "Weak social proof"],   "company_size": "Large",  "source_search": "Solar companies in San Diego, CA",      "rep_idx": 0},
-    {"company_name": "QuickFix Plumbing",         "contact_name": "Dave Moreno",   "email": "dave@quickfixplumbing.com",    "phone": "713-555-0039", "website": "quickfixplumbing.com",    "city": "Houston, TX",      "industry": "Plumbing",  "status": "Converted",     "weaknesses": ["No booking page", "No testimonials"],            "company_size": "Small",  "source_search": "Plumbing companies in Houston, TX",     "rep_idx": 0},
-    {"company_name": "All Seasons Plumbing",      "contact_name": "",              "email": "",                             "phone": "832-555-0762", "website": "",                        "city": "Houston, TX",      "industry": "Plumbing",  "status": "Not Interested","weaknesses": ["No website", "No email"],                        "company_size": "Small",  "source_search": "Plumbing companies in Houston, TX",     "rep_idx": 0},
-    # Marcus Johnson (idx 1)
-    {"company_name": "Texas Roofing Co.",         "contact_name": "Bill Sanders",  "email": "bill@texasroofing.com",        "phone": "214-555-0284", "website": "texasroofing.com",        "city": "Dallas, TX",       "industry": "Roofing",   "status": "Contacted",     "weaknesses": ["No reviews", "Old website"],                    "company_size": "Medium", "source_search": "Roofing companies in Dallas, TX",       "rep_idx": 1},
-    {"company_name": "Prime Electric",            "contact_name": "Ana Torres",    "email": "ana@primeelectric.com",        "phone": "972-555-0156", "website": "primeelectric.com",       "city": "Dallas, TX",       "industry": "Electrical","status": "Responded",     "weaknesses": ["Missing contact page"],                         "company_size": "Small",  "source_search": "Electrical contractors in Dallas, TX", "rep_idx": 1},
-    {"company_name": "Green Lawn Care",           "contact_name": "Kevin Wu",      "email": "kevin@greenlawn.com",          "phone": "469-555-0391", "website": "greenlawn.com",           "city": "Dallas, TX",       "industry": "Landscaping","status": "Not Contacted","weaknesses": ["No online presence"],                            "company_size": "Small",  "source_search": "Lawn care companies in Dallas, TX",    "rep_idx": 1},
-    # Priya Patel (idx 2)
-    {"company_name": "Pacific Window Cleaning",   "contact_name": "Nadia Costa",   "email": "nadia@pacificwindows.com",     "phone": "310-555-0227", "website": "pacificwindows.com",      "city": "Los Angeles, CA",  "industry": "Cleaning",  "status": "Converted",     "weaknesses": ["Poor mobile site"],                             "company_size": "Small",  "source_search": "Window cleaning in Los Angeles, CA",   "rep_idx": 2},
-    {"company_name": "Bay Area Landscaping",      "contact_name": "Raj Singh",     "email": "raj@balscaping.com",           "phone": "415-555-0483", "website": "balscaping.com",          "city": "San Francisco, CA","industry": "Landscaping","status": "Contacted",    "weaknesses": ["No Google Business"],                           "company_size": "Medium", "source_search": "Landscaping in San Francisco, CA",     "rep_idx": 2},
-    {"company_name": "Coastal Pest Control",      "contact_name": "",              "email": "info@coastalpest.com",         "phone": "858-555-0149", "website": "coastalpest.com",         "city": "San Diego, CA",    "industry": "Pest Control","status": "Not Contacted","weaknesses": ["Old website", "Low reviews"],                   "company_size": "Small",  "source_search": "Pest control in San Diego, CA",        "rep_idx": 2},
-    # Tom Williams (idx 3)
-    {"company_name": "Metro Painting Pro",        "contact_name": "John Dawson",   "email": "john@metropainting.com",       "phone": "212-555-0318", "website": "metropainting.com",       "city": "New York, NY",     "industry": "Painting",  "status": "Responded",     "weaknesses": ["No before/after photos"],                       "company_size": "Small",  "source_search": "Painters in New York, NY",             "rep_idx": 3},
-    {"company_name": "Brooklyn Flooring",         "contact_name": "Maria Lopez",   "email": "maria@brooklynflooring.com",   "phone": "718-555-0462", "website": "brooklynflooring.com",    "city": "Brooklyn, NY",     "industry": "Flooring",  "status": "Contacted",     "weaknesses": ["Slow website", "No pricing page"],              "company_size": "Medium", "source_search": "Flooring companies in Brooklyn, NY",   "rep_idx": 3},
-    {"company_name": "Empire Garage Doors",       "contact_name": "Steve Kim",     "email": "steve@empiregarage.com",       "phone": "917-555-0574", "website": "empiregarage.com",        "city": "New York, NY",     "industry": "Garage Doors","status": "Not Contacted","weaknesses": ["No online booking"],                            "company_size": "Small",  "source_search": "Garage door repair in New York, NY",   "rep_idx": 3},
-]
-
-if db.query(Lead).count() == 0:
-    for ld in SAMPLE_LEADS:
-        rep = reps[ld["rep_idx"]] if ld["rep_idx"] < len(reps) else reps[0]
-        lead = Lead(
-            company_name=ld["company_name"],
-            contact_name=ld.get("contact_name", ""),
-            email=ld.get("email", ""),
-            phone=ld.get("phone", ""),
-            website=ld.get("website", ""),
-            city=ld.get("city", ""),
-            industry=ld.get("industry", ""),
-            status=ld.get("status", "Not Contacted"),
-            notes="",
-            weaknesses=json.dumps(ld.get("weaknesses", [])),
-            company_size=ld.get("company_size", ""),
-            source_search=ld.get("source_search", ""),
-            assigned_to=rep.id,
-        )
-        db.add(lead)
-    db.commit()
-    print(f"✓ Created {len(SAMPLE_LEADS)} sample leads")
-else:
-    print(f"  Leads already exist ({db.query(Lead).count()} total), skipping")
-
-db.close()
-
-print("\n─────────────────────────────")
-print("Seed complete! Login credentials:")
-print("  Admin: admin@leadflow.io  / admin123")
-print("  Reps:  sarah@leadflow.io  / rep123")
-print("         marcus@leadflow.io / rep123")
-print("         priya@leadflow.io  / rep123")
-print("         tom@leadflow.io    / rep123")
-print("─────────────────────────────")
+print("\nDone!")
+print("\nLogin credentials:")
+print("  Admin:     admin@leadflow.io / admin123")
+print("  Sales rep: sarah@leadflow.io / rep123  (also marcus, priya, tom)")
