@@ -621,6 +621,10 @@ async def _search_leads(query: str, api_key: str, search_cx: str, max_results: i
                 if resp.status_code == 403 and "accessNotConfigured" in resp.text:
                     results.append({"error": "Custom Search API is not enabled. Enable it at: https://console.developers.google.com/apis/api/customsearch.googleapis.com/overview"})
                     break
+                if resp.status_code == 403:
+                    print(f"[SCRAPE] 403 error body: {resp.text[:500]}")
+                    results.append({"error": f"Google API error 403: {resp.text[:300]}"})
+                    break
                 resp.raise_for_status()
                 items: List[Any] = resp.json().get("items", [])
                 if not items:
