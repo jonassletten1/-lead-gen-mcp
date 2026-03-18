@@ -507,6 +507,26 @@ def regenerate_invite(user: dict = Depends(require_admin)):
 
 
 # ── Leads ─────────────────────────────────────────────────────────────────────────
+@app.get("/api/leads/domains")
+def get_lead_domains(user: dict = Depends(get_current_user)):
+    """Return all saved lead websites/domains for the org (for duplicate detection)."""
+    org = get_user_org(user)
+    if not org:
+        return []
+    rows = sb.table("leads").select("website,assigned_to,company_name").eq("organization_id", org["id"]).execute().data
+    # Return list of {domain, assigned_to, company_name}
+    out = []
+    for r in rows:
+        w = (r.get("website") or "").strip().lower()
+        if not w:
+            continue
+        # Normalize to domain
+        domain = w.replace("https://", "").replace("http://", "").replace("www.", "").split("/")[0]
+        if domain:
+            out.append({"domain": domain, "assigned_to": r.get("assigned_to"), "company_name": r.get("company_name", "")})
+    return out
+
+
 @app.get("/api/leads")
 def get_leads(user: dict = Depends(get_current_user)):
     q = sb.table("leads").select(LEADS_Q).order("created_at", desc=True)

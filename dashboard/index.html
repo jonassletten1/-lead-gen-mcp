@@ -1817,7 +1817,7 @@ const LocationMap = ({ center, radiusKm, onCenterChange }) => {
 };
 
 /* ─── Rep Search Leads ─── */
-const RepSearchLeads = ({ user = {} }) => {
+const RepSearchLeads = ({ user = {}, isAdmin = false }) => {
   const [phase, setPhase] = useState("form");
   const [progress, setProgress] = useState(0);
   const [progressStep, setProgressStep] = useState(0);
@@ -1826,11 +1826,21 @@ const RepSearchLeads = ({ user = {} }) => {
   const [scrapeError, setScrapeError] = useState("");
   const [orgChecked, setOrgChecked] = useState(false);
   const [hasOrg, setHasOrg] = useState(false);
+  const [orgMembers, setOrgMembers] = useState([]);
+  const [assignToRep, setAssignToRep] = useState("");
+  const [takenDomains, setTakenDomains] = useState({}); // domain -> {assigned_to, company_name}
 
   useEffect(() => {
     apiFetch("/api/org")
       .then(org => { setHasOrg(!!org); setOrgChecked(true); })
       .catch(() => { setHasOrg(false); setOrgChecked(true); });
+    if (isAdmin) {
+      apiFetch("/api/org/members").then(members => {
+        const active = (members || []).filter(m => m.status === "active" || !m.status);
+        setOrgMembers(active);
+        if (active.length > 0) setAssignToRep(active[0].id);
+      }).catch(() => {});
+    }
   }, []);
 
   // Section 1
@@ -1953,20 +1963,29 @@ const RepSearchLeads = ({ user = {} }) => {
     }, 200);
 
     try {
-      const data = await apiFetch("/api/scrape", {
-        method: "POST",
-        body: JSON.stringify({
-          industry:    industryForSearch,
-          location:    location.trim(),
-          radius,
-          criteria,
-          phone_req:   phoneReq,
-          email_req:   emailReq,
-          quantity,
-          company_size: companySize,
+      const [data, domainsRaw] = await Promise.all([
+        apiFetch("/api/scrape", {
+          method: "POST",
+          body: JSON.stringify({
+            industry:    industryForSearch,
+            location:    location.trim(),
+            radius,
+            criteria,
+            phone_req:   phoneReq,
+            email_req:   emailReq,
+            quantity,
+            company_size: companySize,
+          }),
         }),
-      });
+        apiFetch("/api/leads/domains").catch(() => []),
+      ]);
       clearInterval(iv);
+
+      // Build domain lookup map
+      const domainMap = {};
+      (domainsRaw || []).forEach(d => { domainMap[d.domain] = d; });
+      setTakenDomains(domainMap);
+
       // Check if backend returned an API-level error inside results
       const raw = data.results || [];
       const apiError = raw.find(r => r.error);
@@ -1994,7 +2013,10 @@ const RepSearchLeads = ({ user = {} }) => {
   };
 
   const toggleSelect = (id) => setSelectedLeads(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
-  const toggleAll    = () => setSelectedLeads(s => s.size === results.length ? new Set() : new Set(results.map(r => r.id)));
+  const toggleAll    = () => setSelectedLeads(s => {
+    const avail = results.filter(r => !isLeadTaken(r));
+    return s.size === avail.length ? new Set() : new Set(avail.map(r => r.id));
+  });
   const saveSelected = async () => {
     const toSave = results.filter(r => selectedLeads.has(r.id));
     try {
@@ -2010,6 +2032,7 @@ const RepSearchLeads = ({ user = {} }) => {
             industry:      r.industry || industryForSearch,
             source_search: r.source_search || `${industryForSearch} in ${location}`,
             status:        "Not Contacted",
+            ...(isAdmin && assignToRep ? { assigned_to: assignToRep } : {}),
           }),
         })
       ));
@@ -2020,6 +2043,18 @@ const RepSearchLeads = ({ user = {} }) => {
     }
   };
 
+  // Domain helpers for duplicate detection
+  const normalizeDomain = (url) => {
+    if (!url) return "";
+    return url.replace(/https?:\/\//i, "").replace(/^www\./i, "").split("/")[0].toLowerCase().trim();
+  };
+  const isLeadTaken = (lead) => {
+    const domain = normalizeDomain(lead.website);
+    return domain ? !!takenDomains[domain] : false;
+  };
+  const takenCount = results.filter(isLeadTaken).length;
+  const saturationPct = results.length > 0 ? Math.round((takenCount / results.length) * 100) : 0;
+
   /* ── FORM ─────────────────────────────────────────────────────── */
   if (phase === "form") return (
     <div className="p-6 max-w-2xl space-y-4">
@@ -2027,6 +2062,26 @@ const RepSearchLeads = ({ user = {} }) => {
         <h2 className="text-xl font-bold text-slate-800">Search Leads</h2>
         <p className="text-sm text-slate-500 mt-1">Configure your criteria and let the scraper find qualified leads</p>
       </div>
+
+      {/* ── Admin: assign to rep ── */}
+      {isAdmin && (
+        <div className="bg-blue-50 border border-blue-200 rounded-2xl px-5 py-4 flex items-center gap-4">
+          <Icon name="users" className="w-5 h-5 text-blue-600 flex-shrink-0" />
+          <div className="flex-1">
+            <p className="text-xs font-semibold text-blue-800 mb-1">Assign leads to</p>
+            {orgMembers.length === 0 ? (
+              <p className="text-xs text-blue-500">No active reps — add reps in Sales Reps tab first</p>
+            ) : (
+              <select value={assignToRep} onChange={e => setAssignToRep(e.target.value)}
+                className="w-full text-sm border border-blue-300 rounded-xl px-3 py-1.5 bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-400">
+                {orgMembers.map(m => (
+                  <option key={m.id} value={m.id}>{m.name} ({m.email})</option>
+                ))}
+              </select>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ── Section 1: What are you looking for? ── */}
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
@@ -2359,7 +2414,8 @@ const RepSearchLeads = ({ user = {} }) => {
   );
 
   /* ── RESULTS ──────────────────────────────────────────────────── */
-  const allSel = results.length > 0 && selectedLeads.size === results.length;
+  const availableResults = results.filter(r => !isLeadTaken(r));
+  const allSel = availableResults.length > 0 && selectedLeads.size === availableResults.length;
   return (
     <div className="p-6 space-y-5 max-w-5xl">
       <div className="flex items-center justify-between gap-4">
@@ -2405,12 +2461,36 @@ const RepSearchLeads = ({ user = {} }) => {
         </div>
       )}
 
+      {/* Saturation banner */}
+      {results.length > 0 && saturationPct === 100 && (
+        <div className="bg-orange-50 border border-orange-300 rounded-2xl p-5 flex gap-4 items-start">
+          <div className="text-2xl flex-shrink-0">🔥</div>
+          <div>
+            <p className="font-bold text-orange-800 text-sm">Area fully saturated</p>
+            <p className="text-orange-700 text-sm mt-1">All {results.length} leads in this area are already claimed by your team. Try a different niche or expand your search radius.</p>
+            <div className="flex gap-2 mt-3">
+              <button onClick={() => { setPhase("form"); setSelectedLeads(new Set()); setSavedLeads(new Set()); setResults([]); setScrapeError(""); }}
+                className="text-xs font-semibold bg-orange-600 text-white px-4 py-2 rounded-xl hover:bg-orange-700 transition-colors">
+                Change search
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {results.length > 0 && saturationPct >= 80 && saturationPct < 100 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl px-5 py-3 flex items-center gap-3">
+          <span className="text-lg flex-shrink-0">⚠️</span>
+          <p className="text-sm text-amber-800"><span className="font-bold">{saturationPct}% of leads already claimed</span> by your team. Consider expanding your search area for more fresh leads.</p>
+        </div>
+      )}
+
       {/* Summary pills */}
       {results.length > 0 && (
         <div className="flex flex-wrap gap-2">
           <span className="text-xs font-semibold bg-blue-50 text-blue-700 px-3 py-1.5 rounded-lg">{results.filter(r=>r.has_email).length} with email</span>
           <span className="text-xs font-semibold bg-emerald-50 text-emerald-700 px-3 py-1.5 rounded-lg">{results.filter(r=>r.has_phone).length} with phone</span>
           <span className="text-xs font-semibold bg-amber-50 text-amber-700 px-3 py-1.5 rounded-lg">{results.filter(r=>!r.has_website).length} no website</span>
+          {takenCount > 0 && <span className="text-xs font-semibold bg-orange-50 text-orange-700 px-3 py-1.5 rounded-lg">{takenCount} already claimed</span>}
           {savedLeads.size > 0 && <span className="text-xs font-semibold bg-slate-800 text-white px-3 py-1.5 rounded-lg">{savedLeads.size} saved</span>}
         </div>
       )}
@@ -2430,20 +2510,36 @@ const RepSearchLeads = ({ user = {} }) => {
           {results.map(r => {
             const isSaved = savedLeads.has(r.id);
             const isSel   = selectedLeads.has(r.id);
+            const taken   = isLeadTaken(r);
+            const takenBy = taken ? takenDomains[normalizeDomain(r.website)] : null;
             return (
-              <div key={r.id} className={`flex items-start gap-3 px-5 py-4 transition-colors ${isSel ? "bg-blue-50/40" : "hover:bg-slate-50/70"}`}>
-                <div onClick={() => !isSaved && toggleSelect(r.id)}
-                  className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 mt-0.5 transition-colors ${isSaved ? "bg-emerald-100 border-emerald-300 cursor-default" : isSel ? "bg-blue-600 border-blue-600 cursor-pointer" : "border-slate-300 bg-white cursor-pointer hover:border-blue-400"}`}>
-                  {(isSel || isSaved) && <Icon name="check" className="w-2.5 h-2.5 text-white" />}
+              <div key={r.id} className={`flex items-start gap-3 px-5 py-4 transition-colors ${taken ? "bg-orange-50/40" : isSel ? "bg-blue-50/40" : "hover:bg-slate-50/70"}`}>
+                <div onClick={() => !isSaved && !taken && toggleSelect(r.id)}
+                  className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 mt-0.5 transition-colors ${isSaved ? "bg-emerald-100 border-emerald-300 cursor-default" : taken ? "border-orange-200 bg-orange-50 cursor-not-allowed" : isSel ? "bg-blue-600 border-blue-600 cursor-pointer" : "border-slate-300 bg-white cursor-pointer hover:border-blue-400"}`}>
+                  {isSaved && <Icon name="check" className="w-2.5 h-2.5 text-emerald-600" />}
+                  {!isSaved && isSel && <Icon name="check" className="w-2.5 h-2.5 text-white" />}
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-start gap-2">
-                    <div className="w-7 h-7 bg-slate-100 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5">
-                      <Icon name="building" className="w-3.5 h-3.5 text-slate-500" />
+                    <div className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5 ${taken ? "bg-orange-100" : "bg-slate-100"}`}>
+                      <Icon name="building" className={`w-3.5 h-3.5 ${taken ? "text-orange-400" : "text-slate-500"}`} />
                     </div>
                     <div>
-                      <p className="text-sm font-semibold text-slate-800">{r.company_name}</p>
-                      <p className="text-xs text-slate-400 mt-0.5">{r.city}</p>
+                      <div className="flex items-center gap-2">
+                        <p className={`text-sm font-semibold ${taken ? "text-slate-500" : "text-slate-800"}`}>{r.company_name}</p>
+                        {taken && (
+                          <span className="text-xs font-bold bg-orange-100 text-orange-600 px-2 py-0.5 rounded-full border border-orange-200">
+                            Claimed
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-slate-400 mt-0.5">
+                        {r.city}
+                        {taken && takenBy && (() => {
+                          const rep = orgMembers.find(m => m.id === takenBy.assigned_to);
+                          return <span className="text-orange-400 ml-2">· claimed by {rep ? rep.name : "your team"}</span>;
+                        })()}
+                      </p>
                     </div>
                   </div>
                 </div>
@@ -2482,13 +2578,13 @@ const RepSearchLeads = ({ user = {} }) => {
             <Icon name="check" className="w-4 h-4" />
             Save Selected
           </button>
-          {savedLeads.size > 0 && selectedLeads.size === 0 && savedLeads.size < results.length && (
-            <button onClick={async () => { setSelectedLeads(new Set(results.map(r => r.id))); }}
+          {savedLeads.size > 0 && selectedLeads.size === 0 && savedLeads.size < availableResults.length && (
+            <button onClick={() => { setSelectedLeads(new Set(availableResults.map(r => r.id))); }}
               className="text-xs font-medium text-slate-500 hover:text-slate-700 px-3 py-2 rounded-lg hover:bg-slate-100 transition-colors">
               Save all
             </button>
           )}
-          {results.length > 0 && savedLeads.size === results.length && (
+          {availableResults.length > 0 && savedLeads.size >= availableResults.length && (
             <span className="text-xs font-semibold text-emerald-600 flex items-center gap-1.5"><Icon name="check" className="w-3 h-3"/>All saved!</span>
           )}
         </div>
@@ -2999,6 +3095,7 @@ const ADMIN_NAV = [
   { id: "admin-dashboard",  label: "Dashboard",   icon: "grid"     },
   { id: "admin-reps",       label: "Sales Reps",  icon: "users"    },
   { id: "admin-leads",      label: "All Leads",   icon: "list" },
+  { id: "admin-search",     label: "Search Leads", icon: "search"  },
   { id: "admin-settings",   label: "Settings",    icon: "settings" },
 ];
 
@@ -3074,12 +3171,14 @@ const App = () => {
       "admin-dashboard": <AdminDashboard />,
       "admin-reps":      <AdminSalesReps />,
       "admin-leads":     <AdminAllLeads />,
+      "admin-search":    <RepSearchLeads user={currentUser} isAdmin={true} />,
       "admin-settings":  <AdminSettings />,
     };
     const titles = {
       "admin-dashboard": "Overview",
       "admin-reps":      "Sales Reps",
       "admin-leads":     "All Leads",
+      "admin-search":    "Search Leads",
       "admin-settings":  "Settings",
     };
     return (
