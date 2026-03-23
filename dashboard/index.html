@@ -1824,6 +1824,7 @@ const RepSearchLeads = ({ user = {}, isAdmin = false }) => {
   const [savedLeads, setSavedLeads] = useState(new Set());
   const [selectedLeads, setSelectedLeads] = useState(new Set());
   const [scrapeError, setScrapeError] = useState("");
+  const [needsMore, setNeedsMore] = useState(false);
   const [orgChecked, setOrgChecked] = useState(false);
   const [hasOrg, setHasOrg] = useState(false);
   const [orgMembers, setOrgMembers] = useState([]);
@@ -1998,6 +1999,7 @@ const RepSearchLeads = ({ user = {}, isAdmin = false }) => {
         const mapped = raw.map((r, i) => ({ ...r, id: i + 1 }));
         setResults(mapped);
         setScrapeError("");
+        setNeedsMore(data.needs_more || false);
         setProgress(100);
         setProgressStep(PROGRESS_STEPS.length - 1);
         setTimeout(() => setPhase("results"), 600);
@@ -2446,6 +2448,19 @@ const RepSearchLeads = ({ user = {}, isAdmin = false }) => {
                 Open Google Cloud Console →
               </a>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Fewer results than requested warning */}
+      {needsMore && results.length > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex gap-3 items-start">
+          <span className="text-xl flex-shrink-0">⚠️</span>
+          <div>
+            <p className="font-semibold text-amber-800 text-sm">Færre leads enn ønsket</p>
+            <p className="text-amber-700 text-sm mt-0.5">
+              Kun {results.length} leads ble funnet i dette området med disse kriteriene. Prøv å utvide søkeområdet, endre bransje, eller juster kriteriene for å få flere resultater.
+            </p>
           </div>
         </div>
       )}

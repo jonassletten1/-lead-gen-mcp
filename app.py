@@ -807,9 +807,14 @@ async def scrape(req: ScrapeRequest, user: dict = Depends(get_current_user)):
     api_key   = org.get("google_api_key", "")
     search_cx = org.get("google_search_cx", "")
     primary_industry = req.industry.split(",")[0].strip() if req.industry else "business"
-    query     = f"{primary_industry} companies in {req.location}"
-    print(f"[SCRAPE] query={query!r} cx={search_cx!r}")
-    search_results = await _search_leads(query, api_key, search_cx, max_results=min(req.quantity, 30))
+    # Clean location — strip country/region suffixes for better Places API results
+    location_clean = req.location.split(",")[0].strip() if "," in req.location else req.location
+    query = f"{primary_industry} {location_clean}"
+    print(f"[SCRAPE] query={query!r}")
+
+    # Fetch more than needed to compensate for criteria filtering
+    fetch_count = min(req.quantity * 4, 60)
+    search_results = await _search_leads(query, api_key, search_cx, max_results=fetch_count)
 
     errors = [r for r in search_results if r.get("error")]
     if errors and len(errors) == len(search_results):
@@ -852,14 +857,32 @@ async def scrape(req: ScrapeRequest, user: dict = Depends(get_current_user)):
             "reviews":       r.get("reviews"),
         }
 
-    raw = await asyncio.gather(*[scrape_one(r) for r in search_results[:req.quantity]],
+    raw = await asyncio.gather(*[scrape_one(r) for r in search_results],
                                return_exceptions=True)
     results: List[Any] = [r for r in raw if r and not isinstance(r, Exception)]
 
+    # Apply contact info requirements
     if req.phone_req == "required":
-        results = [r for r in results if r.get("has_phone") and not r.get("error")]
+        results = [r for r in results if r.get("has_phone")]
     if req.email_req == "required":
-        results = [r for r in results if r.get("has_email") and not r.get("error")]
+        results = [r for r in results if r.get("has_email")]
+
+    # Apply lead criteria filters
+    criteria = req.criteria or {}
+    if criteria.get("no_website"):
+        results = [r for r in results if not r.get("has_website")]
+    if criteria.get("low_reviews"):
+        results = [r for r in results if not r.get("reviews") or r.get("reviews", 999) < 20]
+    if criteria.get("poor_seo"):
+        # Proxy: fewer reviews + no website = likely poor online presence
+        results = [r for r in results if (r.get("reviews") or 0) < 50]
+    if criteria.get("no_social_media"):
+        results = [r for r in results if not r.get("has_website")]
+
+    # Trim to requested quantity
+    available = len(results)
+    results = results[:req.quantity]
+    needs_more = available < req.quantity
 
     # Save new leads to Google Sheet
     _append_leads_to_sheet(results)
@@ -879,7 +902,15 @@ async def scrape(req: ScrapeRequest, user: dict = Depends(get_current_user)):
         "organization_id": org["id"],
     }).execute().data[0]
 
-    return {"session_id": session["id"], "query": query, "results": results, "total": len(results)}
+    return {
+        "session_id": session["id"],
+        "query":      query,
+        "results":    results,
+        "total":      len(results),
+        "needs_more": needs_more,
+        "available":  available,
+        "requested":  req.quantity,
+    }
 
 
 @app.get("/api/scrape/sessions")
