@@ -770,23 +770,68 @@ async def _search_leads(query: str, api_key: str, search_cx: str, max_results: i
         return [{"error": f"Places API error: {str(e)}"}]
 
 
+_SOCIAL_DOMAINS = ("facebook.com", "instagram.com", "twitter.com", "x.com",
+                   "linkedin.com", "tiktok.com", "snapchat.com")
+
+
 async def _scrape_contact_info(url: str) -> dict:
-    info: dict = {"url": url, "page_title": "", "emails": [], "phones": []}
+    info: dict = {
+        "url": url, "page_title": "", "emails": [], "phones": [],
+        # SEO signals
+        "has_title": False, "has_meta_description": False,
+        "has_h1": False, "has_viewport": False,
+        "has_social_media": False,
+        "seo_score": None,   # 0–100, None = scrape failed
+        "is_social_only": False,  # website IS a social media page
+    }
+    # If the "website" is just a Facebook/social page, flag immediately
+    if any(s in url.lower() for s in _SOCIAL_DOMAINS):
+        info["is_social_only"] = True
+        info["seo_score"] = 0
+        return info
     try:
-        async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
             resp = await client.get(url, headers={
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
             })
             soup = BeautifulSoup(resp.text, "html.parser")
             text = soup.get_text(" ", strip=True)
-            title_tag = soup.find("title")
-            info["page_title"] = title_tag.get_text(strip=True) if title_tag else ""
+
+            # Contact info
             raw_emails: List[str] = re.findall(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b', text)
-            clean_emails: List[str] = [e for e in raw_emails
-                                       if not re.search(r'\.(png|jpg|jpeg|gif|svg|webp|ico)$', e, re.I)]
-            info["emails"] = list(dict.fromkeys(clean_emails))[:5]
+            info["emails"] = list(dict.fromkeys(
+                e for e in raw_emails
+                if not re.search(r'\.(png|jpg|jpeg|gif|svg|webp|ico)$', e, re.I)
+            ))[:5]
             raw_phones: List[str] = re.findall(r'(\(?\d{3}\)?[\s.\-]?\d{3}[\s.\-]?\d{4})', text)
             info["phones"] = list(dict.fromkeys(raw_phones))[:5]
+
+            # SEO signals
+            title_tag = soup.find("title")
+            title_text = title_tag.get_text(strip=True) if title_tag else ""
+            info["page_title"] = title_text
+            info["has_title"] = bool(title_text and len(title_text) > 5)
+
+            meta_desc = soup.find("meta", {"name": re.compile(r"^description$", re.I)})
+            info["has_meta_description"] = bool(
+                meta_desc and meta_desc.get("content", "").strip()
+            )
+            info["has_h1"] = bool(soup.find("h1"))
+            info["has_viewport"] = bool(soup.find("meta", {"name": re.compile(r"^viewport$", re.I)}))
+
+            # Social media presence (links on the page)
+            hrefs = [a.get("href", "") for a in soup.find_all("a", href=True)]
+            info["has_social_media"] = any(s in h for h in hrefs for s in _SOCIAL_DOMAINS)
+
+            # SEO score 0–100: 4 key on-page signals × 25 pts each
+            score = sum([
+                25 if info["has_title"]            else 0,
+                25 if info["has_meta_description"] else 0,
+                25 if info["has_h1"]               else 0,
+                25 if info["has_viewport"]         else 0,
+            ])
+            info["seo_score"] = score
+
     except Exception as e:
         info["error"] = str(e)
     return info
@@ -864,25 +909,32 @@ async def scrape(req: ScrapeRequest, user: dict = Depends(get_current_user)):
             phone   = phone   or details.get("phone", "")
             website = website or details.get("website", "")
 
-        # Scrape email from website if available
-        if website and not email:
+        # Scrape website: always needed for SEO scoring + email extraction
+        seo_score = None
+        has_social_media = False
+        if website:
             contact = await _scrape_contact_info(website)
-            email = contact["emails"][0] if contact["emails"] else ""
+            if not email:
+                email = contact["emails"][0] if contact["emails"] else ""
+            seo_score = contact.get("seo_score")
+            has_social_media = contact.get("has_social_media", False)
 
         return {
-            "company_name":  company,
-            "website":       website,
-            "city":          r.get("snippet", "") or req.location,
-            "industry":      req.industry,
-            "email":         email,
-            "phone":         phone,
-            "has_email":     bool(email),
-            "has_phone":     bool(phone),
-            "has_website":   bool(website),
-            "source_search": query,
-            "snippet":       r.get("snippet", ""),
-            "rating":        r.get("rating"),
-            "reviews":       r.get("reviews"),
+            "company_name":    company,
+            "website":         website,
+            "city":            r.get("snippet", "") or req.location,
+            "industry":        req.industry,
+            "email":           email,
+            "phone":           phone,
+            "has_email":       bool(email),
+            "has_phone":       bool(phone),
+            "has_website":     bool(website),
+            "has_social_media": has_social_media,
+            "seo_score":       seo_score,
+            "source_search":   query,
+            "snippet":         r.get("snippet", ""),
+            "rating":          r.get("rating"),
+            "reviews":         r.get("reviews"),
         }
 
     raw = await asyncio.gather(*[scrape_one(r) for r in search_results],
@@ -898,20 +950,27 @@ async def scrape(req: ScrapeRequest, user: dict = Depends(get_current_user)):
     # Apply lead criteria filters
     criteria = req.criteria or {}
     if criteria.get("no_website"):
+        # Strictly no website at all
         results = [r for r in results if not r.get("has_website")]
     if criteria.get("low_reviews"):
-        # Low reviews = fewer than 50 Google Maps reviews
-        results = [r for r in results if not r.get("reviews") or r.get("reviews", 0) < 50]
+        # Fewer than 50 Google Maps reviews
+        results = [r for r in results if (r.get("reviews") or 0) < 50]
     if criteria.get("poor_seo"):
-        # Poor SEO = no website, OR very few reviews (< 200), OR no rating
-        # Businesses with 200+ reviews AND a website have solid online presence
+        # Poor SEO = no website at all,
+        # OR website is just a social media page,
+        # OR website scored < 75/100 on SEO fundamentals
+        #    (missing title, meta description, H1, or viewport tag)
+        # seo_score=None means scrape failed → treat as unknown → include as lead
         results = [r for r in results if (
             not r.get("has_website")
-            or not r.get("reviews")
-            or r.get("reviews", 0) < 200
+            or r.get("seo_score") is None
+            or r.get("seo_score", 100) < 75
         )]
     if criteria.get("no_social_media"):
-        results = [r for r in results if not r.get("has_website")]
+        # Has a website but no links to any social media platform
+        results = [r for r in results if (
+            r.get("has_website") and not r.get("has_social_media")
+        )]
 
     # Trim to requested quantity
     available = len(results)
