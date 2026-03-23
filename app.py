@@ -717,13 +717,12 @@ async def _search_leads(query: str, api_key: str, search_cx: str, max_results: i
         next_page_token = None
 
         async with httpx.AsyncClient(timeout=15) as client:
-            for _ in range(3):  # max 3 pages = 60 results
-                params: dict = {"key": api_key, "language": "no"}
+            for page in range(3):  # max 3 pages = 60 results
                 if next_page_token:
                     await asyncio.sleep(2)  # required delay for page token
-                    params["pagetoken"] = next_page_token
+                    params: dict = {"key": api_key, "language": "no", "pagetoken": next_page_token}
                 else:
-                    params["query"] = query
+                    params = {"key": api_key, "language": "no", "query": query}
 
                 resp = await client.get(
                     "https://maps.googleapis.com/maps/api/place/textsearch/json",
@@ -731,12 +730,14 @@ async def _search_leads(query: str, api_key: str, search_cx: str, max_results: i
                 )
                 data = resp.json()
                 status = data.get("status")
-                print(f"[PLACES] status={status} results={len(data.get('results', []))}")
+                print(f"[PLACES] page={page} status={status} results={len(data.get('results', []))}")
 
                 if status == "ZERO_RESULTS":
                     break
                 if status not in ("OK", "ZERO_RESULTS"):
-                    return [{"error": f"Places API: {status} — {data.get('error_message', '')}"}]
+                    if page == 0:
+                        return [{"error": f"Places API: {status} — {data.get('error_message', '')}"}]
+                    break  # partial results still usable
 
                 for place in data.get("results", []):
                     addr = place.get("formatted_address", "")
