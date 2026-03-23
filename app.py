@@ -890,8 +890,8 @@ async def _scrape_contact_info(url: str) -> dict:
 
 @app.post("/api/scrape")
 async def scrape(req: ScrapeRequest, request: Request, user: dict = Depends(get_current_user)):
-    # Per-user rate limit: max 5 searches per hour
-    _check_rate("scrape_user", user["id"], max_calls=5, window_seconds=3600)
+    # Per-user rate limit: max 3 searches per hour
+    _check_rate("scrape_user", user["id"], max_calls=3, window_seconds=3600)
     # Per-IP rate limit: max 10 searches per hour (blocks shared-IP abuse)
     _check_rate("scrape_ip", request.client.host, max_calls=10, window_seconds=3600)
 
