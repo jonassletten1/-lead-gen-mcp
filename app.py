@@ -709,7 +709,8 @@ async def _get_place_details(place_id: str, api_key: str) -> dict:
         return {"phone": "", "website": ""}
 
 
-async def _search_leads(query: str, api_key: str, search_cx: str, max_results: int = 20) -> List[Any]:
+async def _search_leads(query: str, api_key: str, search_cx: str, max_results: int = 20,
+                        location_latlon: Optional[tuple] = None, radius_m: int = 25000) -> List[Any]:
     if not api_key:
         return [{"error": "Google API Key not configured. Add it in Settings → API Config."}]
     try:
@@ -720,9 +721,12 @@ async def _search_leads(query: str, api_key: str, search_cx: str, max_results: i
             for page in range(3):  # max 3 pages = 60 results
                 if next_page_token:
                     await asyncio.sleep(2)  # required delay for page token
-                    params: dict = {"key": api_key, "language": "no", "pagetoken": next_page_token}
+                    params: dict = {"key": api_key, "pagetoken": next_page_token}
                 else:
-                    params = {"key": api_key, "language": "no", "query": query}
+                    params = {"key": api_key, "query": query}
+                    if location_latlon:
+                        params["location"] = f"{location_latlon[0]},{location_latlon[1]}"
+                        params["radius"] = str(min(radius_m, 50000))
 
                 resp = await client.get(
                     "https://maps.googleapis.com/maps/api/place/textsearch/json",
@@ -808,14 +812,37 @@ async def scrape(req: ScrapeRequest, user: dict = Depends(get_current_user)):
     api_key   = org.get("google_api_key", "")
     search_cx = org.get("google_search_cx", "")
     primary_industry = req.industry.split(",")[0].strip() if req.industry else "business"
-    # Clean location — strip country/region suffixes for better Places API results
-    location_clean = req.location.split(",")[0].strip() if "," in req.location else req.location
-    query = f"{primary_industry} {location_clean}"
-    print(f"[SCRAPE] query={query!r}")
+
+    # Geocode the location to get lat/lng for radius-based search
+    location_latlon = None
+    try:
+        async with httpx.AsyncClient(timeout=8) as geo_client:
+            geo_resp = await geo_client.get(
+                "https://nominatim.openstreetmap.org/search",
+                params={"q": req.location, "format": "json", "limit": 1},
+                headers={"User-Agent": "LeadFlow/1.0 sales-dashboard"},
+            )
+            geo_data = geo_resp.json()
+            if geo_data:
+                location_latlon = (float(geo_data[0]["lat"]), float(geo_data[0]["lon"]))
+                print(f"[GEOCODE] {req.location} → {location_latlon}")
+    except Exception as e:
+        print(f"[GEOCODE] failed: {e}")
+
+    # Convert radius string to meters (e.g. "25km" → 25000)
+    try:
+        radius_m = int(req.radius.lower().replace("km", "").strip()) * 1000
+    except Exception:
+        radius_m = 25000
+
+    # When we have coordinates, query is just the industry; location is handled by lat/lng+radius
+    query = primary_industry if location_latlon else f"{primary_industry} {req.location.split(',')[0].strip()}"
+    print(f"[SCRAPE] query={query!r} latlon={location_latlon} radius={radius_m}m")
 
     # Fetch more than needed to compensate for criteria filtering
     fetch_count = min(req.quantity * 4, 60)
-    search_results = await _search_leads(query, api_key, search_cx, max_results=fetch_count)
+    search_results = await _search_leads(query, api_key, search_cx, max_results=fetch_count,
+                                         location_latlon=location_latlon, radius_m=radius_m)
 
     errors = [r for r in search_results if r.get("error")]
     if errors and len(errors) == len(search_results):
