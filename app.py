@@ -889,7 +889,12 @@ async def _scrape_contact_info(url: str) -> dict:
 
 
 @app.post("/api/scrape")
-async def scrape(req: ScrapeRequest, user: dict = Depends(get_current_user)):
+async def scrape(req: ScrapeRequest, request: Request, user: dict = Depends(get_current_user)):
+    # Per-user rate limit: max 5 searches per hour
+    _check_rate("scrape_user", user["id"], max_calls=5, window_seconds=3600)
+    # Per-IP rate limit: max 10 searches per hour (blocks shared-IP abuse)
+    _check_rate("scrape_ip", request.client.host, max_calls=10, window_seconds=3600)
+
     # Must belong to an org
     org = get_user_org(user)
     if not org:
@@ -962,7 +967,10 @@ async def scrape(req: ScrapeRequest, user: dict = Depends(get_current_user)):
         if pid:
             seen.add(pid)
         search_results.append(r)
-    print(f"[SCRAPE] merged candidates={len(search_results)}")
+    # Cap candidates before Place Details calls to limit API costs.
+    # Place Details costs ~$0.017/call; 60 max = ~$1.02 worst case per search.
+    search_results = search_results[:60]
+    print(f"[SCRAPE] processing {len(search_results)} candidates (capped at 60)")
 
     async def scrape_one(r: dict):
         if r.get("error"):
