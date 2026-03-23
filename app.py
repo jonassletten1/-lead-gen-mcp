@@ -774,6 +774,57 @@ _SOCIAL_DOMAINS = ("facebook.com", "instagram.com", "twitter.com", "x.com",
                    "linkedin.com", "tiktok.com", "snapchat.com")
 
 
+async def _search_nearby(api_key: str, location_latlon: tuple, keyword: str) -> List[Any]:
+    """Nearby Search ranked by distance — surfaces small/obscure businesses not in Text Search."""
+    if not api_key or not location_latlon:
+        return []
+    try:
+        results: List[Any] = []
+        next_page_token = None
+        async with httpx.AsyncClient(timeout=15) as client:
+            for page in range(3):
+                if next_page_token:
+                    await asyncio.sleep(2)
+                    params: dict = {"key": api_key, "pagetoken": next_page_token}
+                else:
+                    params = {
+                        "key": api_key,
+                        "location": f"{location_latlon[0]},{location_latlon[1]}",
+                        "rankby": "distance",
+                        "keyword": keyword,
+                    }
+                resp = await client.get(
+                    "https://maps.googleapis.com/maps/api/place/nearbysearch/json",
+                    params=params
+                )
+                data = resp.json()
+                status = data.get("status")
+                print(f"[NEARBY] page={page} status={status} results={len(data.get('results', []))}")
+                if status not in ("OK", "ZERO_RESULTS"):
+                    break
+                if status == "ZERO_RESULTS":
+                    break
+                for place in data.get("results", []):
+                    results.append({
+                        "title":    place.get("name", ""),
+                        "url":      "",
+                        "snippet":  place.get("vicinity", ""),
+                        "phone":    "",
+                        "email":    "",
+                        "place_id": place.get("place_id", ""),
+                        "rating":   place.get("rating"),
+                        "reviews":  place.get("user_ratings_total"),
+                    })
+                next_page_token = data.get("next_page_token")
+                if not next_page_token:
+                    break
+        print(f"[NEARBY] total={len(results)}")
+        return results
+    except Exception as e:
+        print(f"[NEARBY] error: {e}")
+        return []
+
+
 async def _scrape_contact_info(url: str) -> dict:
     info: dict = {
         "url": url, "page_title": "", "emails": [], "phones": [],
@@ -884,14 +935,34 @@ async def scrape(req: ScrapeRequest, user: dict = Depends(get_current_user)):
     query = primary_industry if location_latlon else f"{primary_industry} {req.location.split(',')[0].strip()}"
     print(f"[SCRAPE] query={query!r} latlon={location_latlon} radius={radius_m}m")
 
-    # Always fetch max 60 results — criteria filtering may discard most of them
-    fetch_count = 60
-    search_results = await _search_leads(query, api_key, search_cx, max_results=fetch_count,
-                                         location_latlon=location_latlon, radius_m=radius_m)
+    # Run Text Search (ranked by prominence) + Nearby Search (ranked by distance) in parallel.
+    # Text Search returns the 60 most well-known businesses.
+    # Nearby Search returns the 60 closest businesses — surfaces small/obscure places.
+    # Combined and deduped: up to ~120 unique candidates before filtering.
+    text_task   = _search_leads(query, api_key, search_cx, max_results=60,
+                                location_latlon=location_latlon, radius_m=radius_m)
+    nearby_task = _search_nearby(api_key, location_latlon, keyword=primary_industry) \
+                  if location_latlon else asyncio.sleep(0, result=[])
+    text_raw, nearby_raw = await asyncio.gather(text_task, nearby_task)
 
-    errors = [r for r in search_results if r.get("error")]
-    if errors and len(errors) == len(search_results):
+    # Surface errors from text search
+    errors = [r for r in text_raw if r.get("error")]
+    if errors and len(errors) == len(text_raw):
         return {"session_id": None, "query": query, "results": errors[:1], "total": 0}
+
+    # Merge, deduplicate by place_id
+    seen: set = set()
+    search_results: List[Any] = []
+    for r in list(text_raw) + list(nearby_raw):
+        if r.get("error"):
+            continue
+        pid = r.get("place_id", "")
+        if pid and pid in seen:
+            continue
+        if pid:
+            seen.add(pid)
+        search_results.append(r)
+    print(f"[SCRAPE] merged candidates={len(search_results)}")
 
     async def scrape_one(r: dict):
         if r.get("error"):
