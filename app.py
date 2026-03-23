@@ -622,34 +622,38 @@ def leads_by_rep(user: dict = Depends(require_admin)):
 
 # ── Scraping ──────────────────────────────────────────────────────────────────────
 async def _search_leads(query: str, api_key: str, search_cx: str, max_results: int = 10) -> List[Any]:
-    if not api_key:
-        return [{"error": "Search API key not configured. Ask your admin to add it in Settings → API Config."}]
+    if not api_key or not search_cx:
+        return [{"error": "Google API key and Search Engine CX not configured. Ask your admin to add them in Settings → API Config."}]
     results: List[Any] = []
     try:
         async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.post(
-                "https://google.serper.dev/maps",
-                headers={"X-API-KEY": api_key, "Content-Type": "application/json"},
-                json={"q": query, "num": min(max_results, 20)},
-            )
-            if resp.status_code == 401:
-                return [{"error": "Serper API key is invalid. Check Settings → API Config."}]
-            if resp.status_code == 403:
-                return [{"error": "Serper API quota reached or key invalid. Check serper.dev for usage."}]
-            if resp.status_code == 429:
-                return [{"error": "Serper API rate limit hit. Try again in a moment."}]
-            resp.raise_for_status()
-            places: List[Any] = resp.json().get("places", [])
-            print(f"[SCRAPE] maps returned {len(places)} places")
-            for place in places[:max_results]:
-                results.append({
-                    "title":   place.get("title", ""),
-                    "url":     place.get("website", ""),
-                    "snippet": place.get("address", ""),
-                    "phone":   place.get("phoneNumber", "") or place.get("phone", ""),
-                    "rating":  place.get("rating"),
-                    "reviews": place.get("ratingCount") or place.get("reviews"),
-                })
+            start = 1
+            while len(results) < max_results:
+                num = min(10, max_results - len(results))
+                resp = await client.get(
+                    "https://www.googleapis.com/customsearch/v1",
+                    params={"key": api_key, "cx": search_cx, "q": query, "num": num, "start": start},
+                )
+                if resp.status_code == 429 or (resp.status_code == 403 and "rateLimitExceeded" in resp.text):
+                    results.append({"error": "Google Search API daily quota reached (100/day). Try again tomorrow."})
+                    break
+                if resp.status_code == 403:
+                    print(f"[SCRAPE] 403: {resp.text[:500]}")
+                    results.append({"error": f"Google API error 403: {resp.text[:300]}"})
+                    break
+                resp.raise_for_status()
+                items: List[Any] = resp.json().get("items", [])
+                if not items:
+                    break
+                for item in items:
+                    results.append({
+                        "title":   item.get("title", ""),
+                        "url":     item.get("link", ""),
+                        "snippet": item.get("snippet", ""),
+                    })
+                start += len(items)
+                if len(items) < num:
+                    break
     except Exception as e:
         results.append({"error": str(e)})
     return results
@@ -695,13 +699,11 @@ async def scrape(req: ScrapeRequest, user: dict = Depends(get_current_user)):
         )
 
     api_key   = org.get("google_api_key", "")
-    print(f"[SCRAPE] org={org.get('name')} key_len={len(api_key)} key_start={api_key[:8]!r}")
-    # Use first industry only for a clean query (multiple industries joined with commas breaks search)
+    search_cx = org.get("google_search_cx", "")
     primary_industry = req.industry.split(",")[0].strip() if req.industry else "business"
     query     = f"{primary_industry} companies in {req.location}"
-    print(f"[SCRAPE] query={query!r}")
-    search_results = await _search_leads(query, api_key, "", max_results=min(req.quantity, 30))
-    print(f"[SCRAPE] search_results count={len(search_results)} first={search_results[:1]}")
+    print(f"[SCRAPE] query={query!r} cx={search_cx!r}")
+    search_results = await _search_leads(query, api_key, search_cx, max_results=min(req.quantity, 30))
 
     errors = [r for r in search_results if r.get("error")]
     if errors and len(errors) == len(search_results):
