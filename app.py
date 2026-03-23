@@ -839,8 +839,8 @@ async def scrape(req: ScrapeRequest, user: dict = Depends(get_current_user)):
     query = primary_industry if location_latlon else f"{primary_industry} {req.location.split(',')[0].strip()}"
     print(f"[SCRAPE] query={query!r} latlon={location_latlon} radius={radius_m}m")
 
-    # Fetch more than needed to compensate for criteria filtering
-    fetch_count = min(req.quantity * 4, 60)
+    # Always fetch max 60 results — criteria filtering may discard most of them
+    fetch_count = 60
     search_results = await _search_leads(query, api_key, search_cx, max_results=fetch_count,
                                          location_latlon=location_latlon, radius_m=radius_m)
 
@@ -900,10 +900,16 @@ async def scrape(req: ScrapeRequest, user: dict = Depends(get_current_user)):
     if criteria.get("no_website"):
         results = [r for r in results if not r.get("has_website")]
     if criteria.get("low_reviews"):
-        results = [r for r in results if not r.get("reviews") or r.get("reviews", 999) < 20]
+        # Low reviews = fewer than 50 Google Maps reviews
+        results = [r for r in results if not r.get("reviews") or r.get("reviews", 0) < 50]
     if criteria.get("poor_seo"):
-        # Proxy: fewer reviews + no website = likely poor online presence
-        results = [r for r in results if (r.get("reviews") or 0) < 50]
+        # Poor SEO = no website, OR very few reviews (< 200), OR no rating
+        # Businesses with 200+ reviews AND a website have solid online presence
+        results = [r for r in results if (
+            not r.get("has_website")
+            or not r.get("reviews")
+            or r.get("reviews", 0) < 200
+        )]
     if criteria.get("no_social_media"):
         results = [r for r in results if not r.get("has_website")]
 
