@@ -631,7 +631,7 @@ def _get_sheet_client():
     try:
         sa_info = json.loads(GOOGLE_SA_JSON)
         creds = Credentials.from_service_account_info(sa_info, scopes=[
-            "https://www.googleapis.com/auth/spreadsheets.readonly"
+            "https://www.googleapis.com/auth/spreadsheets"
         ])
         return gspread.authorize(creds)
     except Exception as e:
@@ -639,63 +639,130 @@ def _get_sheet_client():
         return None
 
 
-async def _search_leads(query: str, api_key: str, search_cx: str, max_results: int = 10) -> List[Any]:
-    if not GOOGLE_SA_JSON:
-        return [{"error": "Google Sheets not configured. Ask your admin to add GOOGLE_SERVICE_ACCOUNT_JSON in Vercel env vars."}]
+def _get_sheet_existing_names() -> set:
+    """Return set of lowercased company names already in the sheet."""
     try:
         gc = _get_sheet_client()
         if not gc:
-            return [{"error": "Could not authenticate with Google Sheets."}]
-        sh = gc.open_by_key(LEADS_SHEET_ID)
-        ws = sh.get_worksheet(0)
+            return set()
+        ws = gc.open_by_key(LEADS_SHEET_ID).get_worksheet(0)
         rows = ws.get_all_values()
-        if not rows:
-            return []
-        # First row is header, skip it
-        headers = [h.lower().strip() for h in rows[0]]
-        data_rows = rows[1:]
-        print(f"[SHEETS] total rows={len(data_rows)} headers={headers}")
+        return {r[0].lower().strip() for r in rows[1:] if r and r[0].strip()}
+    except Exception as e:
+        print(f"[SHEETS] read error: {e}")
+        return set()
 
-        # Parse query: "Roofing companies in Drammen" → industry=Roofing, location=Drammen
-        q_lower = query.lower()
-        industry_q = q_lower.split(" companies in ")[0].strip() if " companies in " in q_lower else q_lower
-        location_q = q_lower.split(" companies in ")[-1].strip() if " companies in " in q_lower else ""
 
-        # Column indices (A=0,B=1,C=2,D=3,E=4,F=5)
-        col_company  = 0
-        col_category = 1
-        col_city     = 2
-        col_phone    = 3
-        col_email    = 4
-        col_website  = 5
-
-        results: List[Any] = []
-        for row in data_rows:
-            if len(row) < 3:
+def _append_leads_to_sheet(leads: list) -> int:
+    """Append new leads to Google Sheet. Returns count of rows added."""
+    if not GOOGLE_SA_JSON or not leads:
+        return 0
+    try:
+        gc = _get_sheet_client()
+        if not gc:
+            return 0
+        ws = gc.open_by_key(LEADS_SHEET_ID).get_worksheet(0)
+        existing = {r[0].lower().strip() for r in ws.get_all_values()[1:] if r and r[0].strip()}
+        rows = []
+        for lead in leads:
+            name = lead.get("company_name", "").strip()
+            if not name or name.lower() in existing:
                 continue
-            category = row[col_category].lower() if len(row) > col_category else ""
-            city     = row[col_city].lower()     if len(row) > col_city     else ""
+            existing.add(name.lower())
+            rows.append([
+                name,
+                lead.get("industry", ""),
+                lead.get("city", ""),
+                lead.get("phone", ""),
+                lead.get("email", ""),
+                lead.get("website", ""),
+                "Not Contacted",
+            ])
+        if rows:
+            ws.append_rows(rows, value_input_option="RAW")
+        print(f"[SHEETS] appended {len(rows)} new leads")
+        return len(rows)
+    except Exception as e:
+        print(f"[SHEETS] append error: {e}")
+        return 0
 
-            # Match industry and location (partial match)
-            industry_match = not industry_q or industry_q in category or category in industry_q
-            location_match = not location_q or location_q in city or city in location_q
 
-            if industry_match and location_match:
-                results.append({
-                    "title":   row[col_company] if len(row) > col_company else "",
-                    "url":     row[col_website].strip() if len(row) > col_website and row[col_website].strip() else "",
-                    "snippet": row[col_city]    if len(row) > col_city    else "",
-                    "phone":   row[col_phone]   if len(row) > col_phone   else "",
-                    "email":   row[col_email]   if len(row) > col_email   else "",
-                })
-            if len(results) >= max_results:
-                break
+async def _get_place_details(place_id: str, api_key: str) -> dict:
+    """Fetch phone and website for a place via Place Details API."""
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(
+                "https://maps.googleapis.com/maps/api/place/details/json",
+                params={
+                    "place_id": place_id,
+                    "fields": "formatted_phone_number,website",
+                    "key": api_key,
+                    "language": "no",
+                }
+            )
+            result = resp.json().get("result", {})
+            return {
+                "phone": result.get("formatted_phone_number", ""),
+                "website": result.get("website", ""),
+            }
+    except Exception:
+        return {"phone": "", "website": ""}
 
-        print(f"[SHEETS] matched={len(results)} for industry={industry_q!r} location={location_q!r}")
+
+async def _search_leads(query: str, api_key: str, search_cx: str, max_results: int = 20) -> List[Any]:
+    if not api_key:
+        return [{"error": "Google API Key not configured. Add it in Settings → API Config."}]
+    try:
+        results: List[Any] = []
+        next_page_token = None
+
+        async with httpx.AsyncClient(timeout=15) as client:
+            for _ in range(3):  # max 3 pages = 60 results
+                params: dict = {"key": api_key, "language": "no"}
+                if next_page_token:
+                    await asyncio.sleep(2)  # required delay for page token
+                    params["pagetoken"] = next_page_token
+                else:
+                    params["query"] = query
+
+                resp = await client.get(
+                    "https://maps.googleapis.com/maps/api/place/textsearch/json",
+                    params=params
+                )
+                data = resp.json()
+                status = data.get("status")
+                print(f"[PLACES] status={status} results={len(data.get('results', []))}")
+
+                if status == "ZERO_RESULTS":
+                    break
+                if status not in ("OK", "ZERO_RESULTS"):
+                    return [{"error": f"Places API: {status} — {data.get('error_message', '')}"}]
+
+                for place in data.get("results", []):
+                    addr = place.get("formatted_address", "")
+                    city = addr.split(",")[1].strip() if "," in addr else addr
+                    results.append({
+                        "title":    place.get("name", ""),
+                        "url":      "",
+                        "snippet":  city,
+                        "phone":    "",
+                        "email":    "",
+                        "place_id": place.get("place_id", ""),
+                        "rating":   place.get("rating"),
+                        "reviews":  place.get("user_ratings_total"),
+                    })
+                    if len(results) >= max_results:
+                        break
+
+                next_page_token = data.get("next_page_token")
+                if not next_page_token or len(results) >= max_results:
+                    break
+
+        print(f"[PLACES] total found={len(results)}")
         return results
     except Exception as e:
-        print(f"[SHEETS] error: {e}")
-        return [{"error": f"Google Sheets error: {str(e)}"}]
+        print(f"[PLACES] error: {e}")
+        return [{"error": f"Places API error: {str(e)}"}]
 
 
 async def _scrape_contact_info(url: str) -> dict:
@@ -754,19 +821,31 @@ async def scrape(req: ScrapeRequest, user: dict = Depends(get_current_user)):
         company = r.get("title", "").strip()
         if not company:
             return None
-        # Phone and email come directly from Google Sheets data
         phone = r.get("phone", "")
+        website = r.get("url", "")
         email = r.get("email", "")
+
+        # Fetch phone + website from Place Details if we have a place_id
+        if r.get("place_id") and api_key:
+            details = await _get_place_details(r["place_id"], api_key)
+            phone   = phone   or details.get("phone", "")
+            website = website or details.get("website", "")
+
+        # Scrape email from website if available
+        if website and not email:
+            contact = await _scrape_contact_info(website)
+            email = contact["emails"][0] if contact["emails"] else ""
+
         return {
             "company_name":  company,
-            "website":       r.get("url", ""),
+            "website":       website,
             "city":          r.get("snippet", "") or req.location,
             "industry":      req.industry,
             "email":         email,
             "phone":         phone,
             "has_email":     bool(email),
             "has_phone":     bool(phone),
-            "has_website":   bool(r.get("url")),
+            "has_website":   bool(website),
             "source_search": query,
             "snippet":       r.get("snippet", ""),
             "rating":        r.get("rating"),
@@ -781,6 +860,9 @@ async def scrape(req: ScrapeRequest, user: dict = Depends(get_current_user)):
         results = [r for r in results if r.get("has_phone") and not r.get("error")]
     if req.email_req == "required":
         results = [r for r in results if r.get("has_email") and not r.get("error")]
+
+    # Save new leads to Google Sheet
+    _append_leads_to_sheet(results)
 
     # Increment org scrape usage
     sb.table("organizations").update({
